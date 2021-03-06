@@ -1,41 +1,24 @@
+use image::DynamicImage;
 use rusqlite::{params, Connection, Result};
 use std::path::Path;
-use image::DynamicImage;
+
+use crate::indexed_image::IndexedImage;
+use std::time::Instant;
+
+const THUMBNAIL_SIZE: (u32, u32) = (256, 256);
 
 struct Engine {
 	connection: Connection,
 	tracked_folders: Vec<String>,
 }
 
-#[derive(Debug)]
-struct IndexedImage {
-	id: i32,
-	filename: String,
-	data: Option<Vec<u8>>,
-}
-
 impl Engine {
-	fn new() -> Result<()> {
+	fn new() -> Result<Self> {
 		let conn = Connection::open_in_memory()?;
 
-		conn.execute(
-			"CREATE TABLE images (
-			id              INTEGER PRIMARY KEY,
-			filename        TEXT NOT NULL,
-			data            BLOB
-		)",
-			[],
-		)?;
-		let me = IndexedImage {
-			id: 0,
-			filename: "steven.png".to_string(),
-			data: None,
-		};
-		conn.execute(
-			"INSERT INTO person (filename, data) VALUES (?1, ?2)",
-			params![me.name, me.data],
-		)?;
+		conn.execute(IndexedImage::make_table_sql(), [])?;
 
+		/*
 		let mut stmt = conn.prepare("SELECT id, name, data FROM person")?;
 		let img_iter = stmt.query_map([], |row| {
 			Ok(IndexedImage {
@@ -48,7 +31,13 @@ impl Engine {
 		for person in img_iter {
 			println!("Found person {:?}", person.unwrap());
 		}
-		Ok(())
+		*/
+		Ok(
+			Engine {
+				connection: conn,
+				tracked_folders: vec![]
+			}
+		)
 	}
 
 	fn start_reindexing(&mut self) {
@@ -58,22 +47,22 @@ impl Engine {
 	//fn get_reindexing_status(&self) -> bool {}
 
 	fn add_tracked_folder(&mut self, folder_glob:String) {
-
+		self.tracked_folders.push(folder_glob);
 	}
 
 	fn remove_tracked_folder(&mut self, folder_index:usize) {
-
-	}
-
-	fn index_image_from_filename(&mut self, filename:String) {
-
+		self.tracked_folders.remove(folder_index);
 	}
 
 	fn index_image_from_path(&mut self, file:Path) {
-
+		let indexed_image = IndexedImage::from_file_path(file).expect("TODO: Handle failure");
+		self.index_image(img);
 	}
 
-	fn index_image(&mut self, img:DynamicImage) {
-		
+	fn index_image(&mut self, img:IndexedImage) {
+		self.connection.execute(
+			"INSERT INTO images (filename, path, thumbnail, crypto_hash, phash, semantic_hash, created, indexed, text) VALUES (?1, ?2)",
+			params![img.filename, img.path, img.thumbnail, img.crypto_hash, img.phash, img.semantic_hash, img.created, Instant::now(), img.text]
+		);
 	}
 }

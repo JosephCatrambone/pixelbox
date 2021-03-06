@@ -8,4 +8,4 @@ edition = "2018"
 
 [dependencies]
 image = "0.23"
-rusqlite = "0.24.2"
+rusqlite = { version="0.24.2", features=["bundled", "time", "functions"] } # bundled uses bundled version for Windows.
