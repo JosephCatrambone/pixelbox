@@ -18,20 +18,6 @@ impl Engine {
 
 		conn.execute(IndexedImage::make_table_sql(), params![])?;
 
-		/*
-		let mut stmt = conn.prepare("SELECT id, name, data FROM person")?;
-		let img_iter = stmt.query_map([], |row| {
-			Ok(IndexedImage {
-				id: row.get(0)?,
-				filename: row.get(1)?,
-				data: row.get(2)?,
-			})
-		})?;
-
-		for person in img_iter {
-			println!("Found person {:?}", person.unwrap());
-		}
-		*/
 		Ok(
 			Engine {
 				connection: conn,

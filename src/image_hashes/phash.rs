@@ -1,4 +1,8 @@
 use image::DynamicImage;
+use rusqlite::functions::FunctionFlags;
+use rusqlite::{Connection, Error, Result, NO_PARAMS};
+use std::sync::Arc;
+type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 fn phash(img:&DynamicImage) -> Vec<u8> {
 	// Each pixel becomes one bit.  16x16 pixels = 256 bits = 32 bytes
@@ -21,7 +25,7 @@ fn phash(img:&DynamicImage) -> Vec<u8> {
 	bytes
 }
 
-fn phash_difference(hash_a:&Vec<u8>, hash_b:&Vec<u8>) -> f32 {
+fn hamming_distance(hash_a:&Vec<u8>, hash_b:&Vec<u8>) -> f32 {
 	hash_a.iter().zip(hash_b).map(|(&a, &b)|{
 		let mut diff = a ^ b;
 		let mut bits_set = 0;
@@ -33,6 +37,30 @@ fn phash_difference(hash_a:&Vec<u8>, hash_b:&Vec<u8>) -> f32 {
 	}).sum::<u8>() as f32 / (8f32 * hash_a.len() as f32)
 }
 
+fn make_phash_distance_db_function(db: &Connection) -> Result<()> {
+	db.create_scalar_function(
+		"phash_distance",
+		2,
+		FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+		move |ctx| {
+			assert_eq!(ctx.len(), 2, "Called with incorrect number of arguments");
+			/*
+			let base_blob: Arc<Vec<u8>> = ctx
+				.get_or_create_aux(0, |vr| -> Result<_, BoxError> {
+					Ok(Vec::new(vr.as_blob()?)?)
+				})?;
+			*/
+			// This repeatedly grabs and regenerates the LHS.  We should change it.
+			let distance = {
+				let lhs = ctx.get_raw(0).as_blob().map_err(|e| Error::UserFunctionError(e.into()))?;
+				let rhs = ctx.get_raw(1).as_blob().map_err(|e| Error::UserFunctionError(e.into()))?;
+				hamming_distance(&lhs.to_vec(), &rhs.to_vec())
+			};
+			Ok(distance)
+		},
+	)
+}
+
 #[cfg(test)]
 mod test {
 	use image;
@@ -40,12 +68,12 @@ mod test {
 
 	#[test]
 	fn test_phash_difference() {
-		assert_eq!(phash_difference(&vec![0u8], &vec![0xFFu8]), 1f32);
-		assert_eq!(phash_difference(&vec![0x0Fu8], &vec![0xFFu8]), 0.5f32);
-		assert_eq!(phash_difference(&vec![0x0u8], &vec![0x0u8]), 0.0f32);
-		assert_eq!(phash_difference(&vec![0b10101010u8], &vec![0b01010101u8]), 1f32);
-		assert_eq!(phash_difference(&vec![0b10101010u8, 0b01010101u8], &vec![0b01010101u8, 0b10101010u8]), 1f32);
-		assert_eq!(phash_difference(&vec![0xFFu8, 0x0Fu8], &vec![0x0Fu8, 0x0Fu8]), 0.25f32); // 4 bits are different.
+		assert_eq!(hamming_distance(&vec![0u8], &vec![0xFFu8]), 1f32);
+		assert_eq!(hamming_distance(&vec![0x0Fu8], &vec![0xFFu8]), 0.5f32);
+		assert_eq!(hamming_distance(&vec![0x0u8], &vec![0x0u8]), 0.0f32);
+		assert_eq!(hamming_distance(&vec![0b10101010u8], &vec![0b01010101u8]), 1f32);
+		assert_eq!(hamming_distance(&vec![0b10101010u8, 0b01010101u8], &vec![0b01010101u8, 0b10101010u8]), 1f32);
+		assert_eq!(hamming_distance(&vec![0xFFu8, 0x0Fu8], &vec![0x0Fu8, 0x0Fu8]), 0.25f32); // 4 bits are different.
 	}
 
 	#[test]
@@ -62,30 +90,30 @@ mod test {
 		let img_hash = phash(&img);
 
 		// Cases that should match:
-		diff = phash_difference(&img_hash, &img_hash);
+		diff = hamming_distance(&img_hash, &img_hash);
 		assert_eq!(diff, 0f32);
 
 		let img_resize = image::open("test_resources/phash_test_resize.png").unwrap();
 		let img_resize_hash = phash(&img_resize);
-		diff = phash_difference(&img_hash, &img_resize_hash);
+		diff = hamming_distance(&img_hash, &img_resize_hash);
 		assert!(diff < 0.0001);
 
 		let img_crop = image::open("test_resources/phash_test_crop.png").unwrap();
 		let img_crop_hash = phash(&img_crop);
-		diff = phash_difference(&img_hash, &img_crop_hash);
+		diff = hamming_distance(&img_hash, &img_crop_hash);
 		assert!(diff < 0.5);
 
 		let img_rot = image::open("test_resources/phash_test_rot1.png").unwrap();
 		let img_rot_hash = phash(&img_rot);
-		diff = phash_difference(&img_hash, &img_rot_hash);
+		diff = hamming_distance(&img_hash, &img_rot_hash);
 		assert!(diff < 0.5);
 
 		// Cases that should be different.
 		let flat = image::open("test_resources/flat_white.png").unwrap();
 		let flat_hash = phash(&flat);
-		assert!(phash_difference(&flat_hash, &img_hash) > 0.5);
-		assert!(phash_difference(&flat_hash, &img_resize_hash) > 0.5);
-		assert!(phash_difference(&flat_hash, &img_crop_hash) > 0.5);
-		assert!(phash_difference(&flat_hash, &img_rot_hash) > 0.5);
+		assert!(hamming_distance(&flat_hash, &img_hash) > 0.5);
+		assert!(hamming_distance(&flat_hash, &img_resize_hash) > 0.5);
+		assert!(hamming_distance(&flat_hash, &img_crop_hash) > 0.5);
+		assert!(hamming_distance(&flat_hash, &img_rot_hash) > 0.5);
 	}
 }
