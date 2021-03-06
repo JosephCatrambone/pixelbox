@@ -1,8 +1,4 @@
 use image::DynamicImage;
-use rusqlite::functions::FunctionFlags;
-use rusqlite::{Connection, Error, Result, NO_PARAMS};
-use std::sync::Arc;
-type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 fn phash(img:&DynamicImage) -> Vec<u8> {
 	// Each pixel becomes one bit.  16x16 pixels = 256 bits = 32 bytes
@@ -25,56 +21,11 @@ fn phash(img:&DynamicImage) -> Vec<u8> {
 	bytes
 }
 
-fn hamming_distance(hash_a:&Vec<u8>, hash_b:&Vec<u8>) -> f32 {
-	hash_a.iter().zip(hash_b).map(|(&a, &b)|{
-		let mut diff = a ^ b;
-		let mut bits_set = 0;
-		while diff != 0 {
-			bits_set += diff & 1;
-			diff >>= 1;
-		}
-		bits_set
-	}).sum::<u8>() as f32 / (8f32 * hash_a.len() as f32)
-}
-
-fn make_phash_distance_db_function(db: &Connection) -> Result<()> {
-	db.create_scalar_function(
-		"phash_distance",
-		2,
-		FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
-		move |ctx| {
-			assert_eq!(ctx.len(), 2, "Called with incorrect number of arguments");
-			/*
-			let base_blob: Arc<Vec<u8>> = ctx
-				.get_or_create_aux(0, |vr| -> Result<_, BoxError> {
-					Ok(Vec::new(vr.as_blob()?)?)
-				})?;
-			*/
-			// This repeatedly grabs and regenerates the LHS.  We should change it.
-			let distance = {
-				let lhs = ctx.get_raw(0).as_blob().map_err(|e| Error::UserFunctionError(e.into()))?;
-				let rhs = ctx.get_raw(1).as_blob().map_err(|e| Error::UserFunctionError(e.into()))?;
-				hamming_distance(&lhs.to_vec(), &rhs.to_vec())
-			};
-			Ok(distance)
-		},
-	)
-}
-
 #[cfg(test)]
 mod test {
 	use image;
+	use crate::engine::hamming_distance;
 	use crate::image_hashes::phash::*;
-
-	#[test]
-	fn test_phash_difference() {
-		assert_eq!(hamming_distance(&vec![0u8], &vec![0xFFu8]), 1f32);
-		assert_eq!(hamming_distance(&vec![0x0Fu8], &vec![0xFFu8]), 0.5f32);
-		assert_eq!(hamming_distance(&vec![0x0u8], &vec![0x0u8]), 0.0f32);
-		assert_eq!(hamming_distance(&vec![0b10101010u8], &vec![0b01010101u8]), 1f32);
-		assert_eq!(hamming_distance(&vec![0b10101010u8, 0b01010101u8], &vec![0b01010101u8, 0b10101010u8]), 1f32);
-		assert_eq!(hamming_distance(&vec![0xFFu8, 0x0Fu8], &vec![0x0Fu8, 0x0Fu8]), 0.25f32); // 4 bits are different.
-	}
 
 	#[test]
 	fn test_phash_flat_white() {
