@@ -16,7 +16,7 @@ impl Engine {
 	fn new() -> Result<Self> {
 		let conn = Connection::open_in_memory()?;
 
-		conn.execute(IndexedImage::make_table_sql(), [])?;
+		conn.execute(IndexedImage::make_table_sql(), params![])?;
 
 		/*
 		let mut stmt = conn.prepare("SELECT id, name, data FROM person")?;
@@ -54,15 +54,15 @@ impl Engine {
 		self.tracked_folders.remove(folder_index);
 	}
 
-	fn index_image_from_path(&mut self, file:Path) {
-		let indexed_image = IndexedImage::from_file_path(file).expect("TODO: Handle failure");
+	fn index_image_from_path(&mut self, file:&Path) {
+		let img = IndexedImage::from_file_path(file).expect("TODO: Handle failure");
 		self.index_image(img);
 	}
 
 	fn index_image(&mut self, img:IndexedImage) {
 		self.connection.execute(
-			"INSERT INTO images (filename, path, thumbnail, crypto_hash, phash, semantic_hash, created, indexed, text) VALUES (?1, ?2)",
-			params![img.filename, img.path, img.thumbnail, img.crypto_hash, img.phash, img.semantic_hash, img.created, Instant::now(), img.text]
+			"INSERT INTO images (filename, path, thumbnail) VALUES (?1, ?2, ?3, ?4, ?5)",
+			params![img.filename, img.path, img.thumbnail] //, Instant::now().format("%Y-%m-%dT%H:%M:%S%.f").to_string()?
 		);
 	}
 }
