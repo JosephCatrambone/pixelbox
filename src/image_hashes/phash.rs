@@ -1,6 +1,6 @@
 use image::DynamicImage;
 
-fn phash(img:&DynamicImage) -> Vec<u8> {
+pub fn phash(img:&DynamicImage) -> Vec<u8> {
 	// Each pixel becomes one bit.  16x16 pixels = 256 bits = 32 bytes
 	let img_width = 16;
 	let img_height = 16;

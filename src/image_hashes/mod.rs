@@ -1,3 +1,4 @@
 
-pub mod phash;
-//pub use phash::*;
+mod phash;
+
+pub use phash::phash;
