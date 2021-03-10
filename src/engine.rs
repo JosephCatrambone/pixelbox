@@ -27,11 +27,13 @@ const IMAGE_SCHEMA_V1: &'static str = "CREATE TABLE images (
 	created        DATETIME,
 	indexed        DATETIME
 )";
+const WATCHED_DIRECTORIES_SCHEMA_V1: &'static str = "CREATE TABLE watched_directories (glob TEXT PRIMARY KEY)";
 
 #[derive(Clone)]
 pub struct Engine {
 	pool: Pool<SqliteConnectionManager>,
 	crawler_items: Option<crossbeam::channel::Receiver<PathBuf>>, // What images remain to be processed.
+	watched_directories_cache: Option<Vec<String>>, // Contains a list of the globs that we monitor.
 }
 
 impl Engine {
@@ -40,7 +42,8 @@ impl Engine {
 
 		// Initialize our image DB and our indices.
 		conn.execute(IMAGE_SCHEMA_V1, params![]).unwrap();
-		conn.execute("CREATE TABLE watched_directories (glob TEXT PRIMARY KEY)", NO_PARAMS).unwrap();
+		conn.execute(WATCHED_DIRECTORIES_SCHEMA_V1, NO_PARAMS).unwrap();
+
 		conn.execute("CREATE TABLE phash (id INTEGER PRIMARY KEY, hash BLOB)", params![]).unwrap();
 		make_phash_distance_db_function(&conn);
 		if let Err((_, e)) = conn.close() {
@@ -56,7 +59,8 @@ impl Engine {
 
 		Engine {
 			pool,
-			crawler_items: None
+			crawler_items: None,
+			watched_directories_cache: None
 		}
 	}
 
@@ -76,16 +80,7 @@ impl Engine {
 		// If we are already running a job, noop.
 
 		// Select all our monitored folders and, in parallel, dir walk them to grab new images.
-		let conn = self.pool.get().unwrap();
-		let mut stmt = conn.prepare("SELECT glob FROM watched_directories").unwrap();
-		let glob_cursor = stmt.query_map(NO_PARAMS, |row|{
-			let dir:String = row.get(0)?;
-			Ok(dir)
-		}).unwrap();
-
-		let all_globs:Vec<String> = glob_cursor.map(|item|{
-			item.unwrap()
-		}).collect();
+		let all_globs:Vec<String> = self.get_tracked_folders().clone();
 
 		// Spawn one thread to crawl the disk and a few others to parallel process images.
 		let (s, r): (crossbeam::channel::Sender<PathBuf>, crossbeam::channel::Receiver<PathBuf>) = crossbeam::channel::bounded(MAX_PENDING_FILEPAHTS);
@@ -104,8 +99,6 @@ impl Engine {
 						Ok(img) => {
 							if let Err(e) = Engine::insert_image(&conn, img) {
 								eprintln!("Failed to track image {}: {}", &image_path.display(), &e);
-							} else {
-								println!("Success.");
 							}
 						},
 						Err(e) => {
@@ -124,7 +117,12 @@ impl Engine {
 			std::thread::spawn(move || {
 				println!("Crawler reporting for duty.");
 				let mut stmt = conn.prepare("SELECT 1 FROM images WHERE path = ?").unwrap();
-				for g in all_globs {
+				for base_glob in all_globs {
+					let mut g:String = base_glob;
+					g.push(std::path::MAIN_SEPARATOR);
+					g.push_str("**");
+					g.push(std::path::MAIN_SEPARATOR);
+					g.push_str("*.*");
 					for maybe_fname in glob(&g).expect("Failed to interpret glob pattern.") {
 						match maybe_fname {
 							Ok(path) => {
@@ -145,16 +143,17 @@ impl Engine {
 
 	//fn get_reindexing_status(&self) -> bool {}
 
-	fn insert_image(conn: &PooledConnection<SqliteConnectionManager>, img:IndexedImage) -> Result<()> {
+	fn insert_image(conn: &PooledConnection<SqliteConnectionManager>, mut img:IndexedImage) -> Result<()> {
 		// Update the images table first...
 		conn.execute(
 			"INSERT INTO images (filename, path, thumbnail) VALUES (?, ?, ?)",
 			params![img.filename, img.path, img.thumbnail]
 		)?;
+		img.id = conn.last_insert_rowid();
 
 		// Add the hashes.
 		conn.execute(
-			"INSERT INTO phashes (id, hash) VALUES (?, ?)",
+			"INSERT INTO phash (id, hash) VALUES (?, ?)",
 			params![img.id, img.phash.unwrap()]
 		)?;
 
@@ -163,10 +162,37 @@ impl Engine {
 
 	pub fn add_tracked_folder(&mut self, folder_glob:String) {
 		self.pool.get().unwrap().execute("INSERT INTO watched_directories (glob) VALUES (?1)", params![folder_glob]).unwrap();
+		self.watched_directories_cache = None; // Invalidate cache.
+		self.get_tracked_folders();
 	}
 
 	pub fn remove_tracked_folder(&mut self, folder_glob:String) {
 		self.pool.get().unwrap().execute("DELETE FROM watched_directories WHERE glob=?1", params![folder_glob]).unwrap();
+		self.watched_directories_cache = None; // Invalidate cache.
+		self.get_tracked_folders();
+	}
+
+	pub fn get_tracked_folders(&mut self) -> &Vec<String> {
+		if self.watched_directories_cache.is_none() {
+			let conn = self.pool.get().unwrap();
+			let mut stmt = conn.prepare("SELECT glob FROM watched_directories").unwrap();
+			let glob_cursor = stmt.query_map(NO_PARAMS, |row|{
+				let dir:String = row.get(0)?;
+				Ok(dir)
+			}).unwrap();
+
+			let all_globs:Vec<String> = glob_cursor.map(|item|{
+				item.unwrap()
+			}).collect();
+
+			self.watched_directories_cache = Some(all_globs);
+		}
+
+		if let Some(watched) = &self.watched_directories_cache {
+			watched
+		} else {
+			unreachable!()
+		}
 	}
 
 	fn is_supported_extension(path:&PathBuf) -> bool {

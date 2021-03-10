@@ -8,7 +8,7 @@ pub const THUMBNAIL_SIZE: (u32, u32) = (256, 256);
 
 #[derive(Debug)]
 pub struct IndexedImage {
-	pub id: i32,
+	pub id: i64,
 	pub filename: String,
 	pub path: String,
 	pub thumbnail: Vec<u8>,

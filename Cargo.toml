@@ -8,13 +8,12 @@ edition = "2018"
 
 [dependencies]
 crossbeam = "0.8.0"
-fltk = "0.15.6"
+eframe = "0.10.0" # Gives us egui, epi and web+native backends
 glob = "0.3.0"
 image = "0.23"
+nfd = "0.0.4"  # For Open-File dialogs.
 r2d2 = "0.8.9"
 r2d2_sqlite = "0.17.0"
 rayon = "1.5.0"
 rusqlite = { version="0.24.2", features=["bundled", "time", "functions"] } # bundled uses bundled version for Windows.
-
-[build-dependencies]
-fl2rust = "0.3"
+serde = { version = "*", features = ["derive"], optional = true }
