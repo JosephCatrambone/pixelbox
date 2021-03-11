@@ -6,6 +6,7 @@
 ///
 
 use glob::glob;
+use image::{ImageError, DynamicImage};
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
 use rayon::prelude::*;
@@ -32,8 +33,13 @@ const WATCHED_DIRECTORIES_SCHEMA_V1: &'static str = "CREATE TABLE watched_direct
 #[derive(Clone)]
 pub struct Engine {
 	pool: Pool<SqliteConnectionManager>,
+
+	// Crawling and indexing:
 	crawler_items: Option<crossbeam::channel::Receiver<PathBuf>>, // What images remain to be processed.
 	watched_directories_cache: Option<Vec<String>>, // Contains a list of the globs that we monitor.
+
+	// Searching and filtering.
+	cached_search_results: Vec<IndexedImage>,
 }
 
 impl Engine {
@@ -44,7 +50,7 @@ impl Engine {
 		conn.execute(IMAGE_SCHEMA_V1, params![]).unwrap();
 		conn.execute(WATCHED_DIRECTORIES_SCHEMA_V1, NO_PARAMS).unwrap();
 
-		conn.execute("CREATE TABLE phash (id INTEGER PRIMARY KEY, hash BLOB)", params![]).unwrap();
+		conn.execute("CREATE TABLE phashes (id INTEGER PRIMARY KEY, hash BLOB)", params![]).unwrap();
 		make_phash_distance_db_function(&conn);
 		if let Err((_, e)) = conn.close() {
 			eprintln!("Failed to close db after table creation: {}", e);
@@ -60,7 +66,8 @@ impl Engine {
 		Engine {
 			pool,
 			crawler_items: None,
-			watched_directories_cache: None
+			watched_directories_cache: None,
+			cached_search_results: vec![],
 		}
 	}
 
@@ -153,11 +160,50 @@ impl Engine {
 
 		// Add the hashes.
 		conn.execute(
-			"INSERT INTO phash (id, hash) VALUES (?, ?)",
+			"INSERT INTO phashes (id, hash) VALUES (?, ?)",
 			params![img.id, img.phash.unwrap()]
 		)?;
 
 		Ok(())
+	}
+
+	pub fn query_by_image_name(&mut self, text:String) {
+
+	}
+
+	pub fn query_by_image_path(&mut self, img:&Path) {
+		self.cached_search_results = vec![];
+
+		let indexed_image = IndexedImage::from_file_path(img).unwrap();
+
+		let conn = self.pool.get().unwrap();
+		let mut stmt = conn.prepare(r#"
+			SELECT image.id, image.filename, image.path, image.thumbnail, image.created, image.indexed, phash_distance(?, image_hash.hash) AS dist
+			FROM phashes image_hashes
+			JOIN images images ON images.id = image_hashes.id
+			ORDER BY dist ASC
+			LIMIT 100"#).unwrap();
+		let img_cursor = stmt.query_map(params![indexed_image.phash], |row|{
+			let img:IndexedImage = IndexedImage {
+				id: row.get(0)?,
+				filename: row.get(1)?,
+				path: row.get(2)?,
+				thumbnail: row.get(3)?,
+				created: Instant::now(), //row.get(4)?
+				indexed: Instant::now(), //row.get(5)?
+				phash: None,
+				semantic_hash: None
+			};
+			Ok(img)
+		}).unwrap();
+
+		self.cached_search_results = img_cursor.map(|item|{
+			item.unwrap()
+		}).collect();
+	}
+
+	pub fn get_query_results(filter:Vec<String>) -> Vec<IndexedImage> {
+		vec![]
 	}
 
 	pub fn add_tracked_folder(&mut self, folder_glob:String) {

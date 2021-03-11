@@ -15,6 +15,7 @@ struct MainApp {
 	engine: Option<Engine>,
 	some_text: String,
 	some_value: f32,
+	current_page: u64,
 }
 
 impl Default for MainApp {
@@ -23,6 +24,7 @@ impl Default for MainApp {
 			engine: None,
 			some_text: "LMAO".to_string(),
 			some_value: 1.0f32,
+			current_page: 0u64
 		}
 	}
 }
@@ -33,6 +35,7 @@ impl epi::App for MainApp {
 			engine,
 			some_text,
 			some_value,
+			current_page,
 		} = self;
 
 		egui::TopPanel::top("top_panel").show(ctx, |ui| {
@@ -97,6 +100,10 @@ impl epi::App for MainApp {
 					}
 				});
 
+				ui.collapsing("Search by Image", |ui|{
+					
+				});
+
 				ui.horizontal(|ui| {
 					ui.label("Write something: ");
 					ui.text_edit_singleline(some_text);
@@ -107,11 +114,7 @@ impl epi::App for MainApp {
 					*some_value += 1.0;
 				}
 
-				ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-					ui.add(
-						egui::Hyperlink::new("https://github.com/emilk/egui/").text("powered by egui"),
-					);
-				});
+
 			});
 		}
 
@@ -128,7 +131,29 @@ impl epi::App for MainApp {
 
 			ui.heading("Central Panel");
 			ui.label("The central panel the region left after adding TopPanel's and SidePanel's");
-			ui.label("It is often a great place for big things, like drawings:");
+
+			ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+				ui.horizontal(|ui|{
+					if ui.button("<<").clicked() {
+						*current_page = 0;
+					}
+					if ui.button("<").clicked() {
+						if *current_page > 1 {
+							*current_page -= 1;
+						}
+					}
+					ui.label(format!("Page {} of {}", *current_page, 10));
+					if ui.button(">").clicked() {
+						if *current_page < 9 {
+							*current_page += 1;
+						}
+					}
+					if ui.button(">>").clicked() {
+						*current_page = 10;
+					}
+				});
+				//ui.add(egui::Hyperlink::new("https://github.com/emilk/egui/").text("powered by egui"),);
+			});
 
 			/*
 			ui.heading("Draw with your mouse to paint:");
