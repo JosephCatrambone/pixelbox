@@ -9,6 +9,7 @@ use crate::indexed_image::{IndexedImage, THUMBNAIL_SIZE};
 use eframe::{egui, epi};
 use engine::Engine;
 use nfd;
+use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
 
@@ -19,7 +20,7 @@ struct MainApp {
 	some_value: f32,
 	current_page: u64,
 
-	//image_id_to_texture_id: HashMap::<>
+	image_id_to_texture_id: HashMap::<i64, egui::TextureId>
 }
 
 impl Default for MainApp {
@@ -28,7 +29,8 @@ impl Default for MainApp {
 			engine: None,
 			filename_search_text: "".to_string(),
 			some_value: 1.0f32,
-			current_page: 0u64
+			current_page: 0u64,
+			image_id_to_texture_id: HashMap::new(),
 		}
 	}
 }
@@ -40,6 +42,7 @@ impl epi::App for MainApp {
 			filename_search_text,
 			some_value,
 			current_page,
+			image_id_to_texture_id,
 		} = self;
 
 		egui::TopPanel::top("top_panel").show(ctx, |ui| {
@@ -135,55 +138,66 @@ impl epi::App for MainApp {
 			//egui::warn_if_debug_build(ui);
 			ui.separator();
 
-			ui.label("The central panel the region left after adding TopPanel's and SidePanel's");
-
+			//ui.label("The central panel the region left after adding TopPanel's and SidePanel's");
 			if let Some(engine) = engine {
 				if let Some(results) = engine.get_query_results() {
 					//ui.add(egui::Image::new(my_texture_id, [640.0, 480.0]));
 					let num_results = results.len();
 					let num_columns = (ui.available_width() / THUMBNAIL_SIZE.0 as f32).max(1.0f32) as usize;
+					//let num_rows = num_results / num_columns;
 
-					// Make sure all the thumbnails are made and loaded.
-
-					egui::Grid::new("image_result_grid")
-						.striped(true)
-						.min_col_width(THUMBNAIL_SIZE.0 as f32)
-						.max_col_width(THUMBNAIL_SIZE.0 as f32)
-						.show(ui, |ui| {
-							for row in 0..(num_results/num_columns) {
-								for col in 0..num_columns {
-									//ui.add(egui::Image::new(my_texture_id, [640.0, 480.0]));
-									ui.image(my_texture_id, [640.0, 480.0]);
-									ui.label(format!("Img: {}", &results[col + row*num_columns].filename));
+					let scroll_area = egui::ScrollArea::from_max_height(ui.available_rect_before_wrap().height());
+					scroll_area.show(ui, |ui| {
+						egui::Grid::new("image_result_grid")
+							.striped(false)
+							.min_col_width(THUMBNAIL_SIZE.0 as f32)
+							.max_col_width(THUMBNAIL_SIZE.0 as f32)
+							.show(ui, |ui| {
+								for row in 0..(num_results / num_columns) {
+									for col in 0..num_columns {
+										let res = &results[col + row * num_columns];
+										let tex_id = match image_id_to_texture_id.get(&res.id) {
+											Some(tid) => *tid,
+											None => {
+												let tid = thumbnail_to_egui_element(&results[col + row * num_columns], frame);
+												image_id_to_texture_id.insert(results[col + row * num_columns].id, tid);
+												tid
+											}
+										};
+										//ui.add(egui::Image::new(my_texture_id, [640.0, 480.0]));
+										ui.image(tex_id, [res.thumbnail_resolution.0 as f32, res.thumbnail_resolution.1 as f32]);
+										//ui.label(format!("Img: {}", &results[col + row*num_columns].filename));
+									}
+									ui.end_row();
 								}
-								ui.end_row();
+							});
+					});
+
+					// Pagination:
+					ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+						ui.horizontal(|ui|{
+							if ui.button("<<").clicked() {
+								*current_page = 0;
+							}
+							if ui.button("<").clicked() {
+								if *current_page > 1 {
+									*current_page -= 1;
+								}
+							}
+							ui.label(format!("Page {} of {}", *current_page, 10));
+							if ui.button(">").clicked() {
+								if *current_page < 9 {
+									*current_page += 1;
+								}
+							}
+							if ui.button(">>").clicked() {
+								*current_page = 10;
 							}
 						});
+						//ui.add(egui::Hyperlink::new("https://github.com/emilk/egui/").text("powered by egui"),);
+					});
 				}
 			}
-
-			ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-				ui.horizontal(|ui|{
-					if ui.button("<<").clicked() {
-						*current_page = 0;
-					}
-					if ui.button("<").clicked() {
-						if *current_page > 1 {
-							*current_page -= 1;
-						}
-					}
-					ui.label(format!("Page {} of {}", *current_page, 10));
-					if ui.button(">").clicked() {
-						if *current_page < 9 {
-							*current_page += 1;
-						}
-					}
-					if ui.button(">>").clicked() {
-						*current_page = 10;
-					}
-				});
-				//ui.add(egui::Hyperlink::new("https://github.com/emilk/egui/").text("powered by egui"),);
-			});
 			/*
 			ui.heading("Draw with your mouse to paint:");
 			painting.ui_control(ui);
@@ -218,7 +232,7 @@ fn main() {
 	eframe::run_native(Box::new(app));
 }
 
-fn thumbnail_to_egui_element(img:indexed_image::IndexedImage, frame: &mut epi::Frame<'_>) -> egui::TextureId {
+fn thumbnail_to_egui_element(img:&indexed_image::IndexedImage, frame: &mut epi::Frame<'_>) -> egui::TextureId {
 	let tex_allocator = frame.tex_allocator();
 	let mut pixels = Vec::<egui::Color32>::with_capacity(img.thumbnail.len()/3);
 	for i in (0..img.thumbnail.len()).step_by(3) {
@@ -227,7 +241,7 @@ fn thumbnail_to_egui_element(img:indexed_image::IndexedImage, frame: &mut epi::F
 		let b = img.thumbnail[i+2];
 		pixels.push(egui::Color32::from_rgb(r, g, b));
 	}
-	let texture_id = tex_allocator.alloc_srgba_premultiplied((indexed_image::THUMBNAIL_SIZE.0 as usize, indexed_image::THUMBNAIL_SIZE.1 as usize), pixels.as_slice());
+	let texture_id = tex_allocator.alloc_srgba_premultiplied((img.thumbnail_resolution.0 as usize, img.thumbnail_resolution.1 as usize), pixels.as_slice());
 	texture_id
 }
 

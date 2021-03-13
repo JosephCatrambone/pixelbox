@@ -1,6 +1,6 @@
 use std::time::Instant;
 use std::path::Path;
-use image::ImageError;
+use image::{ImageError, GenericImageView};
 
 use crate::image_hashes::phash;
 
@@ -11,13 +11,14 @@ pub struct IndexedImage {
 	pub id: i64,
 	pub filename: String,
 	pub path: String,
+	pub resolution: (u32, u32),
 	pub thumbnail: Vec<u8>,
+	pub thumbnail_resolution: (u32, u32),
 	pub created: Instant,
 	pub indexed: Instant,
 
 	pub phash: Option<Vec<u8>>,
 	pub semantic_hash: Option<Vec<u8>>,
-
 }
 
 impl IndexedImage {
@@ -30,7 +31,9 @@ impl IndexedImage {
 				id: 0,
 				filename: path.file_name().unwrap().to_str().unwrap().to_string(),
 				path: stringify_filepath(path),
+				resolution: (img.width(), img.height()),
 				thumbnail: thumb.to_vec(),
+				thumbnail_resolution: (thumb.width(), thumb.height()),
 				created: Instant::now(),
 				indexed: Instant::now(),
 

@@ -21,12 +21,16 @@ type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 const MAX_PENDING_FILEPATHS: usize = 1000;
 const IMAGE_SCHEMA_V1: &'static str = "CREATE TABLE images (
-	id             INTEGER PRIMARY KEY,
-	filename       TEXT NOT NULL,
-	path           TEXT NOT NULL,
-	thumbnail      BLOB,
-	created        DATETIME,
-	indexed        DATETIME
+	id               INTEGER PRIMARY KEY,
+	filename         TEXT NOT NULL,
+	path             TEXT NOT NULL,
+	image_width      INTEGER,
+	image_height     INTEGER,
+	thumbnail        BLOB,
+	thumbnail_width  INTEGER,
+	thumbnail_height INTEGER,
+	created          DATETIME,
+	indexed          DATETIME
 )";
 const WATCHED_DIRECTORIES_SCHEMA_V1: &'static str = "CREATE TABLE watched_directories (glob TEXT PRIMARY KEY)";
 
@@ -112,8 +116,8 @@ impl Engine {
 	fn insert_image(conn: &PooledConnection<SqliteConnectionManager>, mut img:IndexedImage) -> Result<()> {
 		// Update the images table first...
 		conn.execute(
-			"INSERT INTO images (filename, path, thumbnail) VALUES (?, ?, ?)",
-			params![img.filename, img.path, img.thumbnail]
+			"INSERT INTO images (filename, path, image_width, image_height, thumbnail, thumbnail_width, thumbnail_height) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			params![img.filename, img.path, img.resolution.0, img.resolution.1, img.thumbnail, img.thumbnail_resolution.0, img.thumbnail_resolution.1]
 		)?;
 		img.id = conn.last_insert_rowid();
 
@@ -137,7 +141,7 @@ impl Engine {
 
 		let conn = self.pool.get().unwrap();
 		let mut stmt = conn.prepare(r#"
-			SELECT images.id, images.filename, images.path, images.thumbnail, images.created, images.indexed, hamming_distance(?, image_hashes.hash) AS dist
+			SELECT images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height, hamming_distance(?, image_hashes.hash) AS dist
 			FROM phashes image_hashes
 			JOIN images images ON images.id = image_hashes.id
 			ORDER BY dist ASC
@@ -147,7 +151,9 @@ impl Engine {
 				id: row.get(0)?,
 				filename: row.get(1)?,
 				path: row.get(2)?,
-				thumbnail: row.get(3)?,
+				resolution: (row.get(3)?, row.get(4)?),
+				thumbnail: row.get(5)?,
+				thumbnail_resolution: (row.get(6)?, row.get(7)?),
 				created: Instant::now(), //row.get(4)?
 				indexed: Instant::now(), //row.get(5)?
 				phash: None,
