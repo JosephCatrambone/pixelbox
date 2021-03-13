@@ -29,7 +29,7 @@ impl IndexedImage {
 			IndexedImage {
 				id: 0,
 				filename: path.file_name().unwrap().to_str().unwrap().to_string(),
-				path: path.canonicalize().unwrap().display().to_string(),
+				path: stringify_filepath(path),
 				thumbnail: thumb.to_vec(),
 				created: Instant::now(),
 				indexed: Instant::now(),
@@ -39,5 +39,11 @@ impl IndexedImage {
 			}
 		)
 	}
+}
+
+/// Convert a path into a canonical string.
+/// We could do a few different things to a path, but to ensure we're doing the same thing everywhere we reference a path as a string, have one method.
+pub fn stringify_filepath(path: &Path) -> String {
+	path.canonicalize().unwrap().display().to_string()
 }
 

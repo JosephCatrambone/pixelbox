@@ -5,7 +5,6 @@
 /// Engine manages the spidering, indexing, and keeping track of images.
 ///
 
-use glob::glob;
 use image::{ImageError, DynamicImage};
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
@@ -15,11 +14,12 @@ use rusqlite::functions::FunctionFlags;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use crate::crawler;
 use crate::indexed_image::*;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
-const MAX_PENDING_FILEPAHTS: usize = 1000;
+const MAX_PENDING_FILEPATHS: usize = 1000;
 const IMAGE_SCHEMA_V1: &'static str = "CREATE TABLE images (
 	id             INTEGER PRIMARY KEY,
 	filename       TEXT NOT NULL,
@@ -39,7 +39,7 @@ pub struct Engine {
 	watched_directories_cache: Option<Vec<String>>, // Contains a list of the globs that we monitor.
 
 	// Searching and filtering.
-	cached_search_results: Vec<IndexedImage>,
+	cached_search_results: Option<Vec<IndexedImage>>,
 }
 
 impl Engine {
@@ -67,7 +67,7 @@ impl Engine {
 			pool,
 			crawler_items: None,
 			watched_directories_cache: None,
-			cached_search_results: vec![],
+			cached_search_results: None,
 		}
 	}
 
@@ -84,68 +84,25 @@ impl Engine {
 	}
 
 	pub fn start_reindexing(&mut self) {
-		// If we are already running a job, noop.
-
 		// Select all our monitored folders and, in parallel, dir walk them to grab new images.
 		let all_globs:Vec<String> = self.get_tracked_folders().clone();
 
-		// Spawn one thread to crawl the disk and a few others to parallel process images.
-		let (s, r): (crossbeam::channel::Sender<PathBuf>, crossbeam::channel::Receiver<PathBuf>) = crossbeam::channel::bounded(MAX_PENDING_FILEPAHTS);
-
 		// Image Processing Thread.
-		for _ in 0..4 {
-			let pool = self.pool.clone();
-			let rx = r.clone();
-			std::thread::spawn(move || {
-				println!("Procesor reporting for duty.");
-				let conn = pool.get().unwrap();
-				while let Ok(image_path) = rx.recv() {
-					println!("Processing {}", &image_path.display());
-					// Calculate everything that needs calculating and insert it.
-					match IndexedImage::from_file_path(&image_path.as_path()) {
-						Ok(img) => {
-							if let Err(e) = Engine::insert_image(&conn, img) {
-								eprintln!("Failed to track image {}: {}", &image_path.display(), &e);
-							}
-						},
-						Err(e) => {
-							println!("Error processing {}: {}", image_path.display(), e);
-						}
-					}
-				}
-				conn.flush_prepared_statement_cache();
-			});
-		}
-
-		// Crawling Thread.
-		{
-			let pool = self.pool.clone();
+		let pool = self.pool.clone();
+		let img_rx = crawler::crawl_globs_async(all_globs, 8);
+		std::thread::spawn(move || {
 			let conn = pool.get().unwrap();
-			std::thread::spawn(move || {
-				println!("Crawler reporting for duty.");
-				let mut stmt = conn.prepare("SELECT 1 FROM images WHERE path = ?").unwrap();
-				for base_glob in all_globs {
-					let mut g:String = base_glob;
-					g.push(std::path::MAIN_SEPARATOR);
-					g.push_str("**");
-					g.push(std::path::MAIN_SEPARATOR);
-					g.push_str("*.*");
-					for maybe_fname in glob(&g).expect("Failed to interpret glob pattern.") {
-						match maybe_fname {
-							Ok(path) => {
-								if path.is_file() && Engine::is_supported_extension(&path) && !stmt.exists(params![path.canonicalize().unwrap().display().to_string()]).unwrap() {
-									if let Err(e) = s.send(path) {
-										eprintln!("Failed to submit image for processing: {}", e);
-									}
-								}
-							},
-							Err(e) => eprintln!("Failed to match glob: {}", e)
-						}
+			let mut stmt = conn.prepare("SELECT 1 FROM images WHERE path = ?").unwrap();
+			while let Ok(img) = img_rx.recv() {
+				println!("Processing {}", &img.path);
+				if !stmt.exists(params![&img.path]).unwrap() {
+					if let Err(e) = Engine::insert_image(&conn, img) {
+						eprintln!("Failed to track image: {}", &e);
 					}
-				}
-				drop(s);
-			});
-		}
+				};
+			}
+			//conn.flush_prepared_statement_cache();
+		});
 	}
 
 	//fn get_reindexing_status(&self) -> bool {}
@@ -171,8 +128,8 @@ impl Engine {
 
 	}
 
-	pub fn query_by_image_path(&mut self, img:&Path) {
-		self.cached_search_results = vec![];
+	pub fn query_by_image_hash_from_file(&mut self, img:&Path) {
+		self.cached_search_results = None;
 
 		let indexed_image = IndexedImage::from_file_path(img).unwrap();
 
@@ -197,13 +154,13 @@ impl Engine {
 			Ok(img)
 		}).unwrap();
 
-		self.cached_search_results = img_cursor.map(|item|{
+		self.cached_search_results = Some(img_cursor.map(|item|{
 			item.unwrap()
-		}).collect();
+		}).collect());
 	}
 
-	pub fn get_query_results(filter:Vec<String>) -> Vec<IndexedImage> {
-		vec![]
+	pub fn get_query_results(&self) -> Option<Vec<IndexedImage>> {
+		self.cached_search_results.clone()
 	}
 
 	pub fn add_tracked_folder(&mut self, folder_glob:String) {
@@ -239,18 +196,6 @@ impl Engine {
 		} else {
 			unreachable!()
 		}
-	}
-
-	fn is_supported_extension(path:&PathBuf) -> bool {
-		if let Some(extension) = path.extension().and_then(|s| s.to_str()) {
-			let ext = extension.to_lowercase();
-			for &supported_extension in &["png", "bmp", "jpg", "jpeg", "gif"] {
-				if ext == supported_extension {
-					return true;
-				}
-			}
-		}
-		return false;
 	}
 }
 

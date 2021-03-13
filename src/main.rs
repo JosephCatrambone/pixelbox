@@ -1,4 +1,5 @@
 
+mod crawler;
 mod engine;
 mod image_hashes;
 mod indexed_image;
@@ -16,6 +17,8 @@ struct MainApp {
 	some_text: String,
 	some_value: f32,
 	current_page: u64,
+
+	//image_id_to_texture_id: HashMap::<>
 }
 
 impl Default for MainApp {
@@ -119,18 +122,19 @@ impl epi::App for MainApp {
 		}
 
 		egui::CentralPanel::default().show(ctx, |ui| {
-			ui.heading("egui template");
-			ui.hyperlink("https://github.com/emilk/egui_template");
-			ui.add(egui::github_link_file_line!(
-                "https://github.com/emilk/egui_template/blob/master/",
-                "Direct link to source code."
-            ));
-			egui::warn_if_debug_build(ui);
-
+			ui.heading("Search Results for Image");
+			//ui.hyperlink("https://github.com/emilk/egui_template");
+			//ui.add(egui::github_link_file_line!("https://github.com/emilk/egui_template/blob/master/", "Direct link to source code."));
+			//egui::warn_if_debug_build(ui);
 			ui.separator();
 
-			ui.heading("Central Panel");
 			ui.label("The central panel the region left after adding TopPanel's and SidePanel's");
+
+			if let Some(engine) = engine {
+				if let Some(results) = engine.get_query_results() {
+
+				}
+			}
 
 			ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
 				ui.horizontal(|ui|{
@@ -154,7 +158,6 @@ impl epi::App for MainApp {
 				});
 				//ui.add(egui::Hyperlink::new("https://github.com/emilk/egui/").text("powered by egui"),);
 			});
-
 			/*
 			ui.heading("Draw with your mouse to paint:");
 			painting.ui_control(ui);
@@ -187,4 +190,22 @@ impl epi::App for MainApp {
 fn main() {
 	let app = MainApp::default();
 	eframe::run_native(Box::new(app));
+}
+
+fn thumbnail_to_egui_element(img:indexed_image::IndexedImage, frame: &mut epi::Frame<'_>) -> egui::TextureId {
+	let tex_allocator = frame.tex_allocator();
+	let mut pixels = Vec::<egui::Color32>::with_capacity(img.thumbnail.len()/3);
+	for i in (0..img.thumbnail.len()).step_by(3) {
+		let r = img.thumbnail[i];
+		let g = img.thumbnail[i+1];
+		let b = img.thumbnail[i+2];
+		pixels.push(egui::Color32::from_rgb(r, g, b));
+	}
+	let texture_id = tex_allocator.alloc_srgba_premultiplied((indexed_image::THUMBNAIL_SIZE.0 as usize, indexed_image::THUMBNAIL_SIZE.1 as usize), pixels.as_slice());
+	texture_id
+}
+
+fn free_thumbnail(img:egui::TextureId, frame: &mut epi::Frame<'_>) {
+	let allocator = frame.tex_allocator();
+	allocator.free(img);
 }
