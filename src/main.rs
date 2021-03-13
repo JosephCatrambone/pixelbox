@@ -5,6 +5,7 @@ mod image_hashes;
 mod indexed_image;
 mod ui;
 
+use crate::indexed_image::{IndexedImage, THUMBNAIL_SIZE};
 use eframe::{egui, epi};
 use engine::Engine;
 use nfd;
@@ -14,7 +15,7 @@ use std::time::Duration;
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
 struct MainApp {
 	engine: Option<Engine>,
-	some_text: String,
+	filename_search_text: String,
 	some_value: f32,
 	current_page: u64,
 
@@ -25,7 +26,7 @@ impl Default for MainApp {
 	fn default() -> Self {
 		MainApp {
 			engine: None,
-			some_text: "LMAO".to_string(),
+			filename_search_text: "".to_string(),
 			some_value: 1.0f32,
 			current_page: 0u64
 		}
@@ -36,7 +37,7 @@ impl epi::App for MainApp {
 	fn update(&mut self, ctx: &egui::CtxRef, frame: &mut epi::Frame<'_>) {
 		let MainApp {
 			engine,
-			some_text,
+			filename_search_text,
 			some_value,
 			current_page,
 		} = self;
@@ -103,21 +104,27 @@ impl epi::App for MainApp {
 					}
 				});
 
-				ui.collapsing("Search by Image", |ui|{
-					
-				});
+				if ui.button("Search by Image").clicked() {
+					let result = nfd::open_file_dialog(None, None).unwrap();
+					match result {
+						nfd::Response::Okay(file_path) => engine.query_by_image_hash_from_file(Path::new(&file_path)),
+						nfd::Response::OkayMultiple(files) => (),
+						nfd::Response::Cancel => (),
+					}
+				}
 
 				ui.horizontal(|ui| {
-					ui.label("Write something: ");
-					ui.text_edit_singleline(some_text);
+					//ui.label("Search by Filename: ");
+					ui.text_edit_singleline(filename_search_text);
+					if ui.button("Search by Filename").clicked() {
+						engine.query_by_image_name(filename_search_text.clone());
+					}
 				});
 
 				ui.add(egui::Slider::f32(some_value, 0.0..=10.0).text("value"));
 				if ui.button("Increment").clicked() {
 					*some_value += 1.0;
 				}
-
-
 			});
 		}
 
@@ -132,7 +139,26 @@ impl epi::App for MainApp {
 
 			if let Some(engine) = engine {
 				if let Some(results) = engine.get_query_results() {
+					//ui.add(egui::Image::new(my_texture_id, [640.0, 480.0]));
+					let num_results = results.len();
+					let num_columns = (ui.available_width() / THUMBNAIL_SIZE.0 as f32).max(1.0f32) as usize;
 
+					// Make sure all the thumbnails are made and loaded.
+
+					egui::Grid::new("image_result_grid")
+						.striped(true)
+						.min_col_width(THUMBNAIL_SIZE.0 as f32)
+						.max_col_width(THUMBNAIL_SIZE.0 as f32)
+						.show(ui, |ui| {
+							for row in 0..(num_results/num_columns) {
+								for col in 0..num_columns {
+									//ui.add(egui::Image::new(my_texture_id, [640.0, 480.0]));
+									ui.image(my_texture_id, [640.0, 480.0]);
+									ui.label(format!("Img: {}", &results[col + row*num_columns].filename));
+								}
+								ui.end_row();
+							}
+						});
 				}
 			}
 

@@ -51,7 +51,6 @@ impl Engine {
 		conn.execute(WATCHED_DIRECTORIES_SCHEMA_V1, NO_PARAMS).unwrap();
 
 		conn.execute("CREATE TABLE phashes (id INTEGER PRIMARY KEY, hash BLOB)", params![]).unwrap();
-		make_phash_distance_db_function(&conn);
 		if let Err((_, e)) = conn.close() {
 			eprintln!("Failed to close db after table creation: {}", e);
 		}
@@ -62,6 +61,9 @@ impl Engine {
 	pub fn open(filename:&Path) -> Self {
 		let manager = SqliteConnectionManager::file(filename);
 		let pool = r2d2::Pool::new(manager).unwrap();
+
+		let conn = pool.get().unwrap();
+		make_hamming_distance_db_function(&conn);
 
 		Engine {
 			pool,
@@ -135,7 +137,7 @@ impl Engine {
 
 		let conn = self.pool.get().unwrap();
 		let mut stmt = conn.prepare(r#"
-			SELECT image.id, image.filename, image.path, image.thumbnail, image.created, image.indexed, phash_distance(?, image_hash.hash) AS dist
+			SELECT images.id, images.filename, images.path, images.thumbnail, images.created, images.indexed, hamming_distance(?, image_hashes.hash) AS dist
 			FROM phashes image_hashes
 			JOIN images images ON images.id = image_hashes.id
 			ORDER BY dist ASC
@@ -211,9 +213,10 @@ pub fn hamming_distance(hash_a:&Vec<u8>, hash_b:&Vec<u8>) -> f32 {
 	}).sum::<u8>() as f32 / (8f32 * hash_a.len() as f32)
 }
 
-fn make_phash_distance_db_function(db: &Connection) -> Result<()> {
+fn make_hamming_distance_db_function(db: &PooledConnection<SqliteConnectionManager>) -> Result<()> {
+	//fn make_hamming_distance_db_function(db: &Connection) -> Result<()> {
 	db.create_scalar_function(
-		"phash_distance",
+		"hamming_distance",
 		2,
 		FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
 		move |ctx| {
