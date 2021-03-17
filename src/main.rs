@@ -167,6 +167,8 @@ impl epi::App for MainApp {
 										//ui.add(egui::Image::new(my_texture_id, [640.0, 480.0]));
 										ui.image(tex_id, [res.thumbnail_resolution.0 as f32, res.thumbnail_resolution.1 as f32]);
 										//ui.label(format!("Img: {}", &results[col + row*num_columns].filename));
+										// To handle right click:
+										//ui.button("Test").secondary_clicked()
 									}
 									ui.end_row();
 								}
