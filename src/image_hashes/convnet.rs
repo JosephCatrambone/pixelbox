@@ -4,7 +4,7 @@ use lazy_static::lazy_static;
 use tch::{CModule, Tensor, nn::Module};
 use std::ops::{AddAssign, DivAssign};
 
-const ENCODER_MODEL_PATH:&'static str = "encoder.pt";
+const ENCODER_MODEL_PATH:&'static str = "models/encoder_cpu.pt";
 const MODEL_INPUT_WIDTH:u32 = 256;
 const MODEL_INPUT_HEIGHT:u32 = 256;
 const MODEL_LATENT_SIZE:u32 = 128;

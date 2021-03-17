@@ -55,7 +55,7 @@ impl Engine {
 		conn.execute(WATCHED_DIRECTORIES_SCHEMA_V1, NO_PARAMS).unwrap();
 
 		conn.execute("CREATE TABLE phashes (id INTEGER PRIMARY KEY, hash BLOB)", params![]).unwrap();
-		conn.execute("CREATE TABLE semantic_hash (id INTEGER PRIMARY KEY, hash BLOB)", params![]).unwrap();
+		conn.execute("CREATE TABLE semantic_hashes (id INTEGER PRIMARY KEY, hash BLOB)", params![]).unwrap();
 		if let Err((_, e)) = conn.close() {
 			eprintln!("Failed to close db after table creation: {}", e);
 		}
@@ -69,6 +69,7 @@ impl Engine {
 
 		let conn = pool.get().unwrap();
 		make_hamming_distance_db_function(&conn);
+		make_byte_distance_db_function(&conn);
 
 		Engine {
 			pool,
@@ -146,7 +147,7 @@ impl Engine {
 
 		let conn = self.pool.get().unwrap();
 		let mut stmt = conn.prepare(r#"
-			SELECT images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height, hamming_distance(?, image_hashes.hash) AS dist
+			SELECT images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height, byte_distance(?, image_hashes.hash) AS dist
 			FROM semantic_hashes image_hashes
 			JOIN images images ON images.id = image_hashes.id
 			ORDER BY dist ASC
@@ -212,6 +213,10 @@ impl Engine {
 	}
 }
 
+pub fn byte_distance(hash_a:&Vec<u8>, hash_b:&Vec<u8>) -> f32 {
+	hash_a.iter().zip(hash_b).fold(0f32, |init, (&a, &b)|{init + (a as f32 - b as f32).abs()}) / (255f32 * hash_a.len() as f32)
+}
+
 pub fn hamming_distance(hash_a:&Vec<u8>, hash_b:&Vec<u8>) -> f32 {
 	hash_a.iter().zip(hash_b).map(|(&a, &b)|{
 		let mut diff = a ^ b;
@@ -222,6 +227,22 @@ pub fn hamming_distance(hash_a:&Vec<u8>, hash_b:&Vec<u8>) -> f32 {
 		}
 		bits_set
 	}).sum::<u8>() as f32 / (8f32 * hash_a.len() as f32)
+}
+
+fn make_byte_distance_db_function(db: &PooledConnection<SqliteConnectionManager>) -> Result<()> {
+	db.create_scalar_function(
+		"byte_distance",
+		2,
+		FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+		move |ctx| {
+			let dist = {
+				let lhs = ctx.get_raw(0).as_blob().map_err(|e| Error::UserFunctionError(e.into()))?;
+				let rhs = ctx.get_raw(1).as_blob().map_err(|e| Error::UserFunctionError(e.into()))?;
+				byte_distance(&lhs.to_vec(), &rhs.to_vec())
+			};
+			Ok(dist as f64)
+		}
+	)
 }
 
 fn make_hamming_distance_db_function(db: &PooledConnection<SqliteConnectionManager>) -> Result<()> {
