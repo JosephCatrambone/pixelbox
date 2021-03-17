@@ -11,6 +11,7 @@ crossbeam = "0.8.0"
 eframe = "0.10.0" # Gives us egui, epi and web+native backends
 glob = "0.3.0"
 image = "0.23"
+lazy_static = "1.4.0"
 nfd = "0.0.4"  # For Open-File dialogs.
 r2d2 = "0.8.9"
 r2d2_sqlite = "0.17.0"

@@ -1,6 +1,7 @@
 
 use image::{DynamicImage, GenericImageView};
-use tch::{CModule, Tensor};
+use lazy_static::lazy_static;
+use tch::{CModule, Tensor, nn::Module};
 use std::ops::{AddAssign, DivAssign};
 
 const ENCODER_MODEL_PATH:&'static str = "encoder.pt";
@@ -14,11 +15,11 @@ lazy_static! {
 
 pub fn mlhash(img:&DynamicImage) -> Vec<u8> {
 	let t = image_to_tensor(&img);
-	let latent = encoder.forward(&t.unsqueeze(0)).contiguous();
+	let latent = encoder_model.forward(&t.unsqueeze(0)).contiguous();
 	//let mut repr = vec![0f64; LATENT_SIZE as usize];
 	//unsafe { std::ptr::copy(latent.data_ptr(), repr.as_mut_ptr().cast(), LATENT_SIZE as usize) };
-	let data: &[f32] = unsafe { std::slice::from_raw_parts(latent.data_ptr() as *const f32, LATENT_SIZE) };
-	data.iter().map(|v|{ (128f32 + v.max(-1f32).min(1f32) * 128f32) as u8 }).to_vec()
+	let data: &[f32] = unsafe { std::slice::from_raw_parts(latent.data_ptr() as *const f32, MODEL_LATENT_SIZE as usize) };
+	data.iter().map(|v|{ (128f32 + v.max(-1f32).min(1f32) * 128f32) as u8 }).collect()
 }
 
 fn image_to_tensor(img: &DynamicImage) -> Tensor {

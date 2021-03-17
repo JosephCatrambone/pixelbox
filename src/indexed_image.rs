@@ -3,6 +3,7 @@ use std::path::Path;
 use image::{ImageError, GenericImageView};
 
 use crate::image_hashes::phash;
+use crate::image_hashes::mlhash;
 
 pub const THUMBNAIL_SIZE: (u32, u32) = (256, 256);
 
@@ -38,7 +39,7 @@ impl IndexedImage {
 				indexed: Instant::now(),
 
 				phash: Some(phash(&img)),
-				semantic_hash: None
+				semantic_hash: Some(mlhash(&img)),
 			}
 		)
 	}

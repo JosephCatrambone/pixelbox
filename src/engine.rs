@@ -55,6 +55,7 @@ impl Engine {
 		conn.execute(WATCHED_DIRECTORIES_SCHEMA_V1, NO_PARAMS).unwrap();
 
 		conn.execute("CREATE TABLE phashes (id INTEGER PRIMARY KEY, hash BLOB)", params![]).unwrap();
+		conn.execute("CREATE TABLE semantic_hash (id INTEGER PRIMARY KEY, hash BLOB)", params![]).unwrap();
 		if let Err((_, e)) = conn.close() {
 			eprintln!("Failed to close db after table creation: {}", e);
 		}
@@ -126,6 +127,10 @@ impl Engine {
 			"INSERT INTO phashes (id, hash) VALUES (?, ?)",
 			params![img.id, img.phash.unwrap()]
 		)?;
+		conn.execute(
+			"INSERT INTO semantic_hashes (id, hash) VALUES (?, ?)",
+			params![img.id, img.semantic_hash.unwrap()]
+		)?;
 
 		Ok(())
 	}
@@ -142,11 +147,11 @@ impl Engine {
 		let conn = self.pool.get().unwrap();
 		let mut stmt = conn.prepare(r#"
 			SELECT images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height, hamming_distance(?, image_hashes.hash) AS dist
-			FROM phashes image_hashes
+			FROM semantic_hashes image_hashes
 			JOIN images images ON images.id = image_hashes.id
 			ORDER BY dist ASC
 			LIMIT 100"#).unwrap();
-		let img_cursor = stmt.query_map(params![indexed_image.phash], |row|{
+		let img_cursor = stmt.query_map(params![indexed_image.semantic_hash], |row|{
 			let img:IndexedImage = IndexedImage {
 				id: row.get(0)?,
 				filename: row.get(1)?,
