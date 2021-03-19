@@ -39,7 +39,8 @@ pub struct Engine {
 	pool: Pool<SqliteConnectionManager>,
 
 	// Crawling and indexing:
-	crawler_items: Option<crossbeam::channel::Receiver<PathBuf>>, // What images remain to be processed.
+	files_pending_processing: Option<crossbeam::channel::Receiver<PathBuf>>, // What images remain to be processed.
+	files_pending_storage: Option<crossbeam::channel::Receiver<IndexedImage>>, // What images have been loaded but are not stored.
 	watched_directories_cache: Option<Vec<String>>, // Contains a list of the globs that we monitor.
 
 	// Searching and filtering.
@@ -73,21 +74,18 @@ impl Engine {
 
 		Engine {
 			pool,
-			crawler_items: None,
+			files_pending_processing: None,
+			files_pending_storage: None,
 			watched_directories_cache: None,
 			cached_search_results: None,
 		}
 	}
 
 	pub fn is_indexing_active(&self) -> bool {
-		if let Some(rx) = &self.crawler_items {
-			if rx.is_empty() {
-				false
-			} else {
-				true
-			}
-		} else {
-			false
+		match (&self.files_pending_processing, &self.files_pending_storage) {
+			(Some(f_rx), _) => f_rx.len() > 0,
+			(_, Some(img_rx)) => img_rx.len() > 0,
+			(None, None) => false
 		}
 	}
 
@@ -97,7 +95,9 @@ impl Engine {
 
 		// Image Processing Thread.
 		let pool = self.pool.clone();
-		let img_rx = crawler::crawl_globs_async(all_globs, 8);
+		let (file_rx, img_rx) = crawler::crawl_globs_async(all_globs, 8);
+		self.files_pending_processing = Some(file_rx.clone());
+		self.files_pending_storage = Some(img_rx.clone());
 		std::thread::spawn(move || {
 			let conn = pool.get().unwrap();
 			let mut stmt = conn.prepare("SELECT 1 FROM images WHERE path = ?").unwrap();
@@ -163,7 +163,8 @@ impl Engine {
 				created: Instant::now(), //row.get(4)?
 				indexed: Instant::now(), //row.get(5)?
 				phash: None,
-				semantic_hash: None
+				semantic_hash: None,
+				distance_from_query: Some(row.get(8)?),
 			};
 			Ok(img)
 		}).unwrap();

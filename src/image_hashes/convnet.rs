@@ -11,7 +11,7 @@ const MODEL_LATENT_SIZE:usize = 128;
 
 //static ref ENCODER_MODEL:tch::CModule = tch::CModule::load(ENCODER_MODEL_PATH).expect("Failed to find models at expected location: models/traced_*coder_cpu.pt");
 lazy_static! {
-	static ref model:SimplePlan<TypedFact, Box<dyn TypedOp>, tract_onnx::prelude::Graph<TypedFact, Box<dyn TypedOp>>> =
+	static ref MODEL:SimplePlan<TypedFact, Box<dyn TypedOp>, tract_onnx::prelude::Graph<TypedFact, Box<dyn TypedOp>>> =
 		tract_onnx::onnx()
 		// load the model
 		.model_for_path("models/encoder_cpu.onnx")
@@ -36,7 +36,7 @@ pub fn mlhash(img:&DynamicImage) -> Vec<u8> {
 			resized[(x as _, y as _)][c] as f32 / 255.0
 		}).into();
 
-	let result = model.run(tvec!(image)).unwrap();
+	let result = MODEL.run(tvec!(image)).unwrap();
 
 	// find and display the max value with its index
 	result[0]

@@ -20,6 +20,8 @@ pub struct IndexedImage {
 
 	pub phash: Option<Vec<u8>>,
 	pub semantic_hash: Option<Vec<u8>>,
+
+	pub distance_from_query: Option<f64>,
 }
 
 impl IndexedImage {
@@ -40,6 +42,8 @@ impl IndexedImage {
 
 				phash: Some(phash(&img)),
 				semantic_hash: Some(mlhash(&img)),
+
+				distance_from_query: None,
 			}
 		)
 	}

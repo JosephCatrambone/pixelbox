@@ -1,4 +1,5 @@
 
+use crossbeam::channel::{Receiver, Sender, unbounded};
 use glob::glob;
 use std::path::PathBuf;
 
@@ -7,10 +8,10 @@ use crate::indexed_image::{IndexedImage, stringify_filepath};
 /// Given a vec of directory globs and a set of valid extensions,
 /// crawl the disk and index images.
 /// Returns a Channel with Images as they're created.
-pub fn crawl_globs_async(globs:Vec<String>, parallel_file_loaders:usize) -> crossbeam::channel::Receiver<IndexedImage> {
+pub fn crawl_globs_async(globs:Vec<String>, parallel_file_loaders:usize) -> (Receiver<PathBuf>, Receiver<IndexedImage>) {
 
-	let (file_tx, file_rx) = crossbeam::channel::unbounded();
-	let (image_tx, image_rx) = crossbeam::channel::unbounded();
+	let (file_tx, file_rx) = unbounded();
+	let (image_tx, image_rx) = unbounded();
 
 	// TODO: A bloom filter to make sure we don't reprocess any images we have already.
 
@@ -61,7 +62,7 @@ pub fn crawl_globs_async(globs:Vec<String>, parallel_file_loaders:usize) -> cros
 		});
 	}
 
-	image_rx
+	(file_rx, image_rx)
 }
 
 fn is_supported_extension(path:&PathBuf) -> bool {
