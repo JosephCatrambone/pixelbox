@@ -18,4 +18,4 @@ r2d2_sqlite = "0.17.0"
 rayon = "1.5.0"
 rusqlite = { version="0.24.2", features=["bundled", "time", "functions"] } # bundled uses bundled version for Windows.
 serde = { version = "*", features = ["derive"], optional = true }
-tch = "0.3.1"
+tract-onnx = "*"

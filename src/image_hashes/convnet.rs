@@ -1,39 +1,47 @@
 
 use image::{DynamicImage, GenericImageView};
 use lazy_static::lazy_static;
-use tch::{CModule, Tensor, nn::Module};
-use std::ops::{AddAssign, DivAssign};
+use tract_ndarray::Array;
+use tract_onnx::prelude::*;
 
 const ENCODER_MODEL_PATH:&'static str = "models/encoder_cpu.pt";
-const MODEL_INPUT_WIDTH:u32 = 256;
-const MODEL_INPUT_HEIGHT:u32 = 256;
-const MODEL_LATENT_SIZE:u32 = 128;
+const MODEL_INPUT_WIDTH:usize = 256;
+const MODEL_INPUT_HEIGHT:usize = 256;
+const MODEL_LATENT_SIZE:usize = 128;
 
+//static ref ENCODER_MODEL:tch::CModule = tch::CModule::load(ENCODER_MODEL_PATH).expect("Failed to find models at expected location: models/traced_*coder_cpu.pt");
 lazy_static! {
-	static ref encoder_model:tch::CModule = tch::CModule::load(ENCODER_MODEL_PATH).expect("Failed to find models at expected location: models/traced_*coder_cpu.pt");
+	static ref model:SimplePlan<TypedFact, Box<dyn TypedOp>, tract_onnx::prelude::Graph<TypedFact, Box<dyn TypedOp>>> =
+		tract_onnx::onnx()
+		// load the model
+		.model_for_path("models/encoder_cpu.onnx")
+		.expect("Failed to load model from models/encoder_cpu.onnx")
+		// specify input type and shape
+		.with_input_fact(0, InferenceFact::dt_shape(f32::datum_type(), tvec!(1, 3, MODEL_INPUT_HEIGHT as i64, MODEL_INPUT_WIDTH as i64)))
+		.expect("Failed to specify input shape.")
+		// optimize the model
+		.into_optimized()
+		.expect("Failed to optimize model.")
+		// make the model runnable and fix its inputs and outputs
+		.into_runnable()
+		.expect("Failed make model runnable.");
 }
 
 pub fn mlhash(img:&DynamicImage) -> Vec<u8> {
-	let t = image_to_tensor(&img);
-	let latent = encoder_model.forward(&t.unsqueeze(0)).contiguous();
-	//let mut repr = vec![0f64; LATENT_SIZE as usize];
-	//unsafe { std::ptr::copy(latent.data_ptr(), repr.as_mut_ptr().cast(), LATENT_SIZE as usize) };
-	let data: &[f32] = unsafe { std::slice::from_raw_parts(latent.data_ptr() as *const f32, MODEL_LATENT_SIZE as usize) };
-	data.iter().map(|v|{ (128f32 + v.max(-1f32).min(1f32) * 128f32) as u8 }).collect()
-}
+	let img = img.to_rgb();
+	let resized = image::imageops::resize(&img, MODEL_INPUT_WIDTH as u32, MODEL_INPUT_HEIGHT as u32, ::image::imageops::FilterType::Triangle);
+	//let mean = Array::from_shape_vec((1, 3, 1, 1), vec![0.485, 0.456, 0.406])?;
+	let image: Tensor =
+		tract_ndarray::Array4::from_shape_fn((1, 3, MODEL_INPUT_HEIGHT, MODEL_INPUT_WIDTH), |(_, c, y, x)| {
+			resized[(x as _, y as _)][c] as f32 / 255.0
+		}).into();
 
-fn image_to_tensor(img: &DynamicImage) -> Tensor {
-	let img_resized = img.resize_to_fill(MODEL_INPUT_WIDTH, MODEL_INPUT_HEIGHT, image::imageops::Nearest);
+	let result = model.run(tvec!(image)).unwrap();
 
-	let u8tensor = Tensor::of_data_size(
-		img_resized.as_bytes(),
-		&[img_resized.width() as i64, img_resized.height() as i64, 3i64],
-		tch::kind::Kind::Int8
-	).permute(&[2, 0, 1]); // Convert from WHC to CHW.
-
-	let mut t = Tensor::zeros(&[3, MODEL_INPUT_HEIGHT as i64, MODEL_INPUT_WIDTH as i64], tch::kind::FLOAT_CPU);
-	t.add_assign(u8tensor);
-	t.div_assign(255.0f32);
-
-	t
+	// find and display the max value with its index
+	result[0]
+		.to_array_view::<f32>().unwrap()
+		.iter()
+		.map(|v|{ (128f32 + v.max(-1f32).min(1f32) * 128f32) as u8 })
+		.collect()
 }
