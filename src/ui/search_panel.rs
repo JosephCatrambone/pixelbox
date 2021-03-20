@@ -33,12 +33,25 @@ pub fn search_panel(engine: &mut Engine, ui: &mut Ui) {
 		}
 	});
 
-	if ui.button("Search by Image").clicked() {
-		let result = nfd::open_file_dialog(None, None).unwrap();
-		match result {
-			nfd::Response::Okay(file_path) => engine.query_by_image_hash_from_file(Path::new(&file_path)),
-			nfd::Response::OkayMultiple(files) => (),
-			nfd::Response::Cancel => (),
+	// If indexing is running, show the status..
+	if engine.is_indexing_active() {
+		ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+			ui.vertical(|ui|{
+				ui.label("Indexed:");
+				for entry in engine.get_last_indexed() {
+					ui.label(entry);
+				}
+			});
+		});
+	} else {
+		// Indexing is not running, so show our search options:
+		if ui.button("Search by Image").clicked() {
+			let result = nfd::open_file_dialog(None, None).unwrap();
+			match result {
+				nfd::Response::Okay(file_path) => engine.query_by_image_hash_from_file(Path::new(&file_path)),
+				nfd::Response::OkayMultiple(files) => (),
+				nfd::Response::Cancel => (),
+			}
 		}
 	}
 

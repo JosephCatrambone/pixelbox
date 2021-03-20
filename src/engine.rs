@@ -41,6 +41,9 @@ pub struct Engine {
 	// Crawling and indexing:
 	files_pending_processing: Option<crossbeam::channel::Receiver<PathBuf>>, // What images remain to be processed.
 	files_pending_storage: Option<crossbeam::channel::Receiver<IndexedImage>>, // What images have been loaded but are not stored.
+	files_completed: Option<crossbeam::channel::Receiver<String>>,
+	files_failed: Option<crossbeam::channel::Receiver<String>>,
+	last_indexed: Vec<String>, // A cache of the last n indexed items.
 	watched_directories_cache: Option<Vec<String>>, // Contains a list of the globs that we monitor.
 
 	// Searching and filtering.
@@ -76,6 +79,9 @@ impl Engine {
 			pool,
 			files_pending_processing: None,
 			files_pending_storage: None,
+			files_completed: None,
+			files_failed: None,
+			last_indexed: vec![],
 			watched_directories_cache: None,
 			cached_search_results: None,
 		}
@@ -89,9 +95,29 @@ impl Engine {
 		}
 	}
 
+	pub fn get_last_indexed(&mut self) -> &Vec<String> {
+		if let Some(rx) = &self.files_completed {
+			while let Ok(msg) = rx.recv_timeout(Duration::from_nanos(1)) {
+				self.last_indexed.push(msg);
+			}
+		}
+
+		// Cap last indexed to 10.
+		while self.last_indexed.len() > 10 {
+			self.last_indexed.remove(0);
+		}
+
+		&self.last_indexed
+	}
+
 	pub fn start_reindexing(&mut self) {
 		// Select all our monitored folders and, in parallel, dir walk them to grab new images.
 		let all_globs:Vec<String> = self.get_tracked_folders().clone();
+
+		let (success_tx, success_rx) = crossbeam::channel::unbounded();
+		self.files_completed = Some(success_rx);
+		let (failure_tx, failure_rx) = crossbeam::channel::unbounded();
+		self.files_failed = Some(failure_rx);
 
 		// Image Processing Thread.
 		let pool = self.pool.clone();
@@ -102,10 +128,13 @@ impl Engine {
 			let conn = pool.get().unwrap();
 			let mut stmt = conn.prepare("SELECT 1 FROM images WHERE path = ?").unwrap();
 			while let Ok(img) = img_rx.recv() {
-				println!("Processing {}", &img.path);
 				if !stmt.exists(params![&img.path]).unwrap() {
+					let fname = img.filename.clone();
 					if let Err(e) = Engine::insert_image(&conn, img) {
 						eprintln!("Failed to track image: {}", &e);
+						failure_tx.send(format!("{}: {}", fname, e));
+					} else {
+						success_tx.send(fname);
 					}
 				};
 			}

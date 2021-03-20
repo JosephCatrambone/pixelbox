@@ -42,6 +42,6 @@ pub fn mlhash(img:&DynamicImage) -> Vec<u8> {
 	result[0]
 		.to_array_view::<f32>().unwrap()
 		.iter()
-		.map(|v|{ (128f32 + v.max(-1f32).min(1f32) * 128f32) as u8 })
+		.map(|v|{ (128f32 + (v.max(-1f32).min(1f32) * 128f32)) as u8 })
 		.collect()
 }
