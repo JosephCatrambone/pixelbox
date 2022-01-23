@@ -12,22 +12,26 @@ use crate::indexed_image;
 use crate::indexed_image::IndexedImage;
 
 fn thumbnail_to_egui_element(img:&indexed_image::IndexedImage, ctx: &egui::Context, frame: &epi::Frame) -> egui::TextureId {
-	let mut pixels = Vec::<egui::Color32>::with_capacity(img.thumbnail.len()/3);
+	let mut pixels = Vec::<u8>::with_capacity(img.thumbnail.len() + img.thumbnail.len()/3);
 	for i in (0..img.thumbnail.len()).step_by(3) {
-		let r = img.thumbnail[i];
-		let g = img.thumbnail[i+1];
-		let b = img.thumbnail[i+2];
-		pixels.push(egui::Color32::from_rgb(r, g, b));
+		pixels.push(img.thumbnail[i]);
+		pixels.push(img.thumbnail[i+1]);
+		pixels.push(img.thumbnail[i+2]);
+		pixels.push(255u8);
+	}
+	if img.thumbnail_resolution.0*img.thumbnail_resolution.1*4 != pixels.len().try_into().unwrap() {
+		eprintln!("Resolution/byte mismatch.");
+		dbg!("{:?} {:?}", img.thumbnail_resolution, pixels.len());
+		eprintln!("Corrupt thumbnail: fixme and/or make a recovery op, like empty-fill.");  // TODO
 	}
 	//let texture_id = tex_allocator.alloc_srgba_premultiplied((img.thumbnail_resolution.0 as usize, img.thumbnail_resolution.1 as usize), pixels.as_slice());
-	let tex = epi::Image::from_rgba_unmultiplied([img.thumbnail_resolution.0 as usize, img.thumbnail_resolution.1 as usize], &img.thumbnail);
+	let tex = epi::Image::from_rgba_unmultiplied([img.thumbnail_resolution.0 as usize, img.thumbnail_resolution.1 as usize], &pixels);
 	let texture_id = frame.alloc_texture(tex);
 	texture_id
 }
 
 fn free_thumbnail(img:egui::TextureId, frame: &mut epi::Frame) {
-	//let allocator = frame.tex_allocator();
-	//allocator.free(img);
+	frame.free_texture(img);
 }
 
 pub fn paginate(ui: &mut Ui, current_page: &mut u64, max_page: u64) {
