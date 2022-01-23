@@ -11,8 +11,7 @@ pub use search_panel::search_panel;
 use crate::indexed_image;
 use crate::indexed_image::IndexedImage;
 
-fn thumbnail_to_egui_element(img:&indexed_image::IndexedImage, frame: &mut epi::Frame<'_>) -> egui::TextureId {
-	let tex_allocator = frame.tex_allocator();
+fn thumbnail_to_egui_element(img:&indexed_image::IndexedImage, ctx: &egui::Context, frame: &epi::Frame) -> egui::TextureId {
 	let mut pixels = Vec::<egui::Color32>::with_capacity(img.thumbnail.len()/3);
 	for i in (0..img.thumbnail.len()).step_by(3) {
 		let r = img.thumbnail[i];
@@ -20,13 +19,15 @@ fn thumbnail_to_egui_element(img:&indexed_image::IndexedImage, frame: &mut epi::
 		let b = img.thumbnail[i+2];
 		pixels.push(egui::Color32::from_rgb(r, g, b));
 	}
-	let texture_id = tex_allocator.alloc_srgba_premultiplied((img.thumbnail_resolution.0 as usize, img.thumbnail_resolution.1 as usize), pixels.as_slice());
+	//let texture_id = tex_allocator.alloc_srgba_premultiplied((img.thumbnail_resolution.0 as usize, img.thumbnail_resolution.1 as usize), pixels.as_slice());
+	let tex = epi::Image::from_rgba_unmultiplied([img.thumbnail_resolution.0 as usize, img.thumbnail_resolution.1 as usize], &img.thumbnail);
+	let texture_id = frame.alloc_texture(tex);
 	texture_id
 }
 
-fn free_thumbnail(img:egui::TextureId, frame: &mut epi::Frame<'_>) {
-	let allocator = frame.tex_allocator();
-	allocator.free(img);
+fn free_thumbnail(img:egui::TextureId, frame: &mut epi::Frame) {
+	//let allocator = frame.tex_allocator();
+	//allocator.free(img);
 }
 
 pub fn paginate(ui: &mut Ui, current_page: &mut u64, max_page: u64) {
@@ -93,7 +94,7 @@ impl Painting {
 		use egui::emath::{Pos2, Rect, RectTransform};
 
 		let (mut response, painter) =
-			ui.allocate_painter(ui.available_size_before_wrap_finite(), egui::Sense::drag());
+			ui.allocate_painter(ui.available_size_before_wrap(), egui::Sense::drag());
 
 		let to_screen = RectTransform::from_to(
 			Rect::from_min_size(Pos2::ZERO, response.rect.square_proportions()),

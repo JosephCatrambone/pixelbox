@@ -172,8 +172,11 @@ impl Engine {
 	pub fn query_by_image_hash_from_file(&mut self, img:&Path) {
 		self.cached_search_results = None;
 
+		let debug_start_load_image = Instant::now();
 		let indexed_image = IndexedImage::from_file_path(img).unwrap();
+		let debug_end_load_image = Instant::now();
 
+		let debug_start_db_query = Instant::now();
 		let conn = self.pool.get().unwrap();
 		let mut stmt = conn.prepare(r#"
 			SELECT images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height, byte_distance(?, image_hashes.hash) AS dist
@@ -201,6 +204,9 @@ impl Engine {
 		self.cached_search_results = Some(img_cursor.map(|item|{
 			item.unwrap()
 		}).collect());
+		let debug_end_db_query = Instant::now();
+
+		eprintln!("Time to compute image hash: {:?}.  Time to search DB: {:?}", debug_end_load_image-debug_start_load_image, debug_end_db_query-debug_start_db_query);
 	}
 
 	pub fn get_query_results(&self) -> Option<Vec<IndexedImage>> {

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 // TODO: Maybe move the thumbnail cache fill out of this method.
 
-pub fn image_grid(ui:&mut Ui, frame: &mut epi::Frame<'_>, results:Vec<IndexedImage>, thumbnail_cache: &mut HashMap::<i64, TextureId>, thumbnail_size:(f32, f32)) {
+pub fn image_grid(ui:&mut Ui, ctx: &egui::Context, frame: &mut epi::Frame, results:Vec<IndexedImage>, thumbnail_cache: &mut HashMap::<i64, TextureId>, thumbnail_size:(f32, f32)) {
 	let num_results = results.len();
 	let num_columns = (ui.available_width() / thumbnail_size.0).max(1.0f32) as usize;
 	//let num_rows = num_results / num_columns;
@@ -21,7 +21,7 @@ pub fn image_grid(ui:&mut Ui, frame: &mut epi::Frame<'_>, results:Vec<IndexedIma
 					let tex_id = match thumbnail_cache.get(&res.id) {
 						Some(tid) => *tid,
 						None => {
-							let tid = thumbnail_to_egui_element(&results[col + row * num_columns], frame);
+							let tid = thumbnail_to_egui_element(&results[col + row * num_columns], ctx, frame);
 							thumbnail_cache.insert(results[col + row * num_columns].id, tid);
 							tid
 						}

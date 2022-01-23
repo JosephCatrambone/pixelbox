@@ -2,13 +2,13 @@
 name = "pixelbox"
 version = "0.1.0"
 authors = ["Joseph Catrambone <jo.jcat@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-crossbeam = "0.8.0"
-eframe = "0.10.0" # Gives us egui, epi and web+native backends
+crossbeam = "0.8.1"
+eframe = "0.16.0" # Gives us egui, epi and web+native backends
 glob = "0.3.0"
 image = "0.23"
 lazy_static = "1.4.0"

@@ -6,7 +6,7 @@ mod indexed_image;
 mod ui;
 
 use crate::indexed_image::{IndexedImage, THUMBNAIL_SIZE};
-use eframe::{egui, epi};
+use eframe::{egui, epi, NativeOptions};
 use engine::Engine;
 use nfd;
 use std::collections::HashMap;
@@ -36,7 +36,7 @@ impl Default for MainApp {
 }
 
 impl epi::App for MainApp {
-	fn update(&mut self, ctx: &egui::CtxRef, frame: &mut epi::Frame<'_>) {
+	fn update(&mut self, ctx: &egui::CtxRef, frame: &epi::Frame) {
 		let MainApp {
 			engine,
 			filename_search_text,
@@ -45,10 +45,10 @@ impl epi::App for MainApp {
 			image_id_to_texture_id,
 		} = self;
 
-		egui::TopPanel::top("top_panel").show(ctx, |ui| {
+		egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
 			// The top panel is often a good place for a menu bar:
 			egui::menu::bar(ui, |ui| {
-				egui::menu::menu(ui, "File", |ui| {
+				ui.menu_button("File", |ui| {
 					if ui.button("New DB").clicked() {
 						let result = nfd::open_save_dialog(Some("db"), None).unwrap();
 						match result {
@@ -72,11 +72,11 @@ impl epi::App for MainApp {
 						frame.quit();
 					}
 				});
-			});
+			})
 		});
 
 		if let Some(engine) = engine {
-			egui::SidePanel::left("side_panel", 200.0).show(ctx, |ui| {
+			egui::SidePanel::left("side_panel").show(ctx, |ui| {
 				ui::search_panel(engine, ui);
 			});
 		}
@@ -95,9 +95,9 @@ impl epi::App for MainApp {
 					let num_results = results.len();
 					let page_size = 10;
 
-					let scroll_area = egui::ScrollArea::from_max_height(ui.available_rect_before_wrap().height());
-					scroll_area.show(ui, |ui| {
-						ui::image_table(ui, frame, results, image_id_to_texture_id, (THUMBNAIL_SIZE.0 as f32, THUMBNAIL_SIZE.1 as f32));
+					let scroll_area = egui::ScrollArea::vertical();
+					scroll_area.max_height(ui.available_rect_before_wrap().height()).show(ui, |ui| {
+						ui::image_table(ui, ctx, frame, results, image_id_to_texture_id, (THUMBNAIL_SIZE.0 as f32, THUMBNAIL_SIZE.1 as f32));
 					});
 
 					// Pagination:
@@ -119,15 +119,11 @@ impl epi::App for MainApp {
 	fn name(&self) -> &str {
 		"PixelBox Image Search"
 	}
-
-	fn is_resizable(&self) -> bool {
-		true
-	}
 }
 
 
 fn main() {
 	let app = MainApp::default();
-	eframe::run_native(Box::new(app));
+	eframe::run_native(Box::new(app), NativeOptions::default());
 }
 

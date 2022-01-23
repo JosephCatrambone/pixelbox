@@ -5,9 +5,12 @@ use std::path::Path;
 
 pub fn search_panel(engine: &mut Engine, ui: &mut Ui) {
 	// Special button creation for reindex.
-	if ui.add(egui::Button::new("Reindex").enabled(!engine.is_indexing_active())).clicked() {
-		engine.start_reindexing();
-	}
+	ui.group(|ui|{
+		ui.set_enabled(!engine.is_indexing_active());
+		if ui.button("Reindex").clicked() {
+			engine.start_reindexing();
+		}
+	});
 
 	//ui.heading("Watched Directories");
 	ui.collapsing("Watched Directories", |ui| {
