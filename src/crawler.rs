@@ -49,7 +49,7 @@ pub fn crawl_globs_async(globs:Vec<String>, parallel_file_loaders:usize) -> (Rec
 		let tx = image_tx.clone();
 		std::thread::spawn(move || {
 			while let Ok(image_path) = rx.recv() {
-				// Calculate everything that needs calculating and insert it.
+				// Calculate the bare minimum that needs calculating and insert it.
 				match IndexedImage::from_file_path(&image_path.as_path()) {
 					Ok(img) => {
 						tx.send(img);

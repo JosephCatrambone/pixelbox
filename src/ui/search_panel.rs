@@ -1,7 +1,9 @@
-
+use std::borrow::BorrowMut;
 use crate::engine::Engine;
 use eframe::egui::{Ui, self};
 use std::path::Path;
+use tract_onnx::tract_core::downcast_rs::Downcast;
+
 
 pub fn search_panel(engine: &mut Engine, ui: &mut Ui) {
 	// Special button creation for reindex.
@@ -55,6 +57,14 @@ pub fn search_panel(engine: &mut Engine, ui: &mut Ui) {
 				nfd::Response::OkayMultiple(files) => (),
 				nfd::Response::Cancel => (),
 			}
+		}
+
+		ui.separator();
+
+		ui.text_edit_singleline(&mut engine.searched_image_name);
+		let img_name = engine.searched_image_name.clone();
+		if ui.button("Search by Text").clicked() {
+			engine.query_by_image_name(&img_name);
 		}
 	}
 

@@ -48,6 +48,9 @@ pub struct Engine {
 
 	// Searching and filtering.
 	cached_search_results: Option<Vec<IndexedImage>>,
+
+	// An awful hack because our UI doesn't have a persistent reference to the string to store an image name.
+	pub searched_image_name: String,
 }
 
 impl Engine {
@@ -84,6 +87,8 @@ impl Engine {
 			last_indexed: vec![],
 			watched_directories_cache: None,
 			cached_search_results: None,
+
+			searched_image_name: String::new(),
 		}
 	}
 
@@ -165,8 +170,34 @@ impl Engine {
 		Ok(())
 	}
 
-	pub fn query_by_image_name(&mut self, text:String) {
-
+	pub fn query_by_image_name(&mut self, text:&String) {
+		self.cached_search_results = None; // Starting query.
+		let conn = self.pool.get().unwrap();
+		let mut stmt = conn.prepare(r#"
+			SELECT images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height
+			FROM images
+			WHERE images.filename LIKE ?
+			LIMIT 100
+		"#).unwrap();
+		let img_cursor = stmt.query_map(params![text], |row|{
+			let img:IndexedImage = IndexedImage {
+				id: row.get(0)?,
+				filename: row.get(1)?,
+				path: row.get(2)?,
+				resolution: (row.get(3)?, row.get(4)?),
+				thumbnail: row.get(5)?,
+				thumbnail_resolution: (row.get(6)?, row.get(7)?),
+				created: Instant::now(), //row.get(4)?
+				indexed: Instant::now(), //row.get(5)?
+				phash: None,
+				semantic_hash: None,
+				distance_from_query: None,
+			};
+			Ok(img)
+		}).unwrap();
+		self.cached_search_results = Some(img_cursor.map(|item|{
+			item.unwrap()
+		}).collect());
 	}
 
 	pub fn query_by_image_hash_from_file(&mut self, img:&Path) {
