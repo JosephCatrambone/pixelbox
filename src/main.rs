@@ -97,7 +97,7 @@ impl epi::App for MainApp {
 
 					let scroll_area = egui::ScrollArea::vertical();
 					scroll_area.max_height(ui.available_rect_before_wrap().height()).show(ui, |ui| {
-						ui::image_table(ui, ctx, frame, results, image_id_to_texture_id, (THUMBNAIL_SIZE.0 as f32, THUMBNAIL_SIZE.1 as f32));
+						ui::image_table(ui, ctx, frame, results, image_id_to_texture_id);
 					});
 
 					// Pagination:

@@ -9,7 +9,7 @@ use image::{ImageError, DynamicImage};
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
 use rayon::prelude::*;
-use rusqlite::{params, Connection, Error, Result, NO_PARAMS};
+use rusqlite::{params, Connection, Error, Result, NO_PARAMS, Row};
 use rusqlite::functions::FunctionFlags;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -34,6 +34,22 @@ const IMAGE_SCHEMA_V1: &'static str = "CREATE TABLE images (
 )";
 const WATCHED_DIRECTORIES_SCHEMA_V1: &'static str = "CREATE TABLE watched_directories (glob TEXT PRIMARY KEY)";
 
+fn indexed_image_from_row(row: &Row) -> Result<IndexedImage> {
+	Ok(IndexedImage {
+		id: row.get(0)?,
+		filename: row.get(1)?,
+		path: row.get(2)?,
+		resolution: (row.get(3)?, row.get(4)?),
+		thumbnail: row.get(5)?,
+		thumbnail_resolution: (row.get(6)?, row.get(7)?),
+		created: Instant::now(), //row.get(8)?
+		indexed: Instant::now(), //row.get(9)?
+		phash: None,
+		semantic_hash: None,
+		distance_from_query: None,
+	})
+}
+
 #[derive(Clone)]
 pub struct Engine {
 	pool: Pool<SqliteConnectionManager>,
@@ -48,9 +64,6 @@ pub struct Engine {
 
 	// Searching and filtering.
 	cached_search_results: Option<Vec<IndexedImage>>,
-
-	// An awful hack because our UI doesn't have a persistent reference to the string to store an image name.
-	pub searched_image_name: String,
 }
 
 impl Engine {
@@ -87,8 +100,6 @@ impl Engine {
 			last_indexed: vec![],
 			watched_directories_cache: None,
 			cached_search_results: None,
-
-			searched_image_name: String::new(),
 		}
 	}
 
@@ -172,29 +183,19 @@ impl Engine {
 
 	pub fn query_by_image_name(&mut self, text:&String) {
 		self.cached_search_results = None; // Starting query.
+		println!("Searching for {}", text);
+
 		let conn = self.pool.get().unwrap();
 		let mut stmt = conn.prepare(r#"
 			SELECT images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height
 			FROM images
-			WHERE images.filename LIKE ?
+			WHERE images.filename LIKE ?1
 			LIMIT 100
 		"#).unwrap();
 		let img_cursor = stmt.query_map(params![text], |row|{
-			let img:IndexedImage = IndexedImage {
-				id: row.get(0)?,
-				filename: row.get(1)?,
-				path: row.get(2)?,
-				resolution: (row.get(3)?, row.get(4)?),
-				thumbnail: row.get(5)?,
-				thumbnail_resolution: (row.get(6)?, row.get(7)?),
-				created: Instant::now(), //row.get(4)?
-				indexed: Instant::now(), //row.get(5)?
-				phash: None,
-				semantic_hash: None,
-				distance_from_query: None,
-			};
-			Ok(img)
+			indexed_image_from_row(row)
 		}).unwrap();
+
 		self.cached_search_results = Some(img_cursor.map(|item|{
 			item.unwrap()
 		}).collect());
@@ -216,19 +217,8 @@ impl Engine {
 			ORDER BY dist ASC
 			LIMIT 100"#).unwrap();
 		let img_cursor = stmt.query_map(params![indexed_image.semantic_hash], |row|{
-			let img:IndexedImage = IndexedImage {
-				id: row.get(0)?,
-				filename: row.get(1)?,
-				path: row.get(2)?,
-				resolution: (row.get(3)?, row.get(4)?),
-				thumbnail: row.get(5)?,
-				thumbnail_resolution: (row.get(6)?, row.get(7)?),
-				created: Instant::now(), //row.get(4)?
-				indexed: Instant::now(), //row.get(5)?
-				phash: None,
-				semantic_hash: None,
-				distance_from_query: Some(row.get(8)?),
-			};
+			let mut img = indexed_image_from_row(row).unwrap();
+			img.distance_from_query = Some(row.get(8)?);
 			Ok(img)
 		}).unwrap();
 

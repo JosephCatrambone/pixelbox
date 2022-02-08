@@ -61,8 +61,10 @@ pub fn search_panel(engine: &mut Engine, ui: &mut Ui) {
 
 		ui.separator();
 
-		ui.text_edit_singleline(&mut engine.searched_image_name);
-		let img_name = engine.searched_image_name.clone();
+		let mut searched_image_name = String::new();  // TODO: Replace this with a static mut reference so the search string is editable.
+
+		ui.text_edit_singleline(&mut searched_image_name);
+		let img_name = searched_image_name.clone();
 		if ui.button("Search by Text").clicked() {
 			engine.query_by_image_name(&img_name);
 		}

@@ -4,7 +4,7 @@ use super::thumbnail_to_egui_element;
 use eframe::{epi, egui::{self, Ui, TextureId}};
 use std::collections::HashMap;
 
-pub fn image_table(ui:&mut Ui, ctx: &egui::Context, frame: &epi::Frame, results:Vec<IndexedImage>, thumbnail_cache: &mut HashMap::<i64, TextureId>, thumbnail_size:(f32, f32)) {
+pub fn image_table(ui:&mut Ui, ctx: &egui::Context, frame: &epi::Frame, results:Vec<IndexedImage>, thumbnail_cache: &mut HashMap::<i64, TextureId>) {
 	ui.vertical(|ui|{
 		results.iter().for_each(|res|{
 			ui.horizontal(|ui|{
