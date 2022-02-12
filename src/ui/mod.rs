@@ -2,6 +2,7 @@ mod image_grid;
 mod image_table;
 mod search_panel;
 pub mod search;
+pub mod folders;
 
 use eframe::{egui::{self, Ui}, epi};
 

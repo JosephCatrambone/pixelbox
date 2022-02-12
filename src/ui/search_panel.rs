@@ -21,29 +21,7 @@ pub fn search_panel(engine: &mut Engine, ui: &mut Ui, search_text: &mut String) 
 		}
 	});
 
-	//ui.heading("Watched Directories");
-	ui.collapsing("Watched Directories", |ui| {
-		let folders = engine.get_tracked_folders();
-		let mut to_remove:Option<String> = None;
-		for dir in folders {
-			ui.horizontal(|ui|{
-				ui.label(dir);
-				if ui.button("x").clicked() {
-					to_remove = Some(dir.clone());
-				}
-			});
-		}
-		if ui.button("Add Directory").clicked() {
-			let result = nfd::open_pick_folder(None).unwrap();
-			match result {
-				nfd::Response::Okay(file_path) => engine.add_tracked_folder(file_path),
-				_ => ()
-			}
-		}
-		if let Some(dir_to_remove) = to_remove {
-			engine.remove_tracked_folder(dir_to_remove);
-		}
-	});
+	
 
 	// If indexing is running, show the status..
 	if engine.is_indexing_active() {

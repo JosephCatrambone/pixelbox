@@ -45,28 +45,26 @@ pub fn search_panel(
 			});
 	}
 
-	egui::CentralPanel::default().show(ctx, |ui| {
-		ui.heading("Search Results for Image");
-		//ui.hyperlink("https://github.com/emilk/egui_template");
-		//ui.add(egui::github_link_file_line!("https://github.com/emilk/egui_template/blob/master/", "Direct link to source code."));
-		//egui::warn_if_debug_build(ui);
-		ui.separator();
+	//ui.hyperlink("https://github.com/emilk/egui_template");
+	//ui.add(egui::github_link_file_line!("https://github.com/emilk/egui_template/blob/master/", "Direct link to source code."));
+	//egui::warn_if_debug_build(ui);
+	ui.separator();
 
-		//ui.label("The central panel the region left after adding TopPanel's and SidePanel's");
-		if let Some(results) = engine.get_query_results() {
-			//ui.add(egui::Image::new(my_texture_id, [640.0, 480.0]));
+	//ui.label("The central panel the region left after adding TopPanel's and SidePanel's");
+	if let Some(results) = engine.get_query_results() {
+		ui.heading("Results");
+		//ui.add(egui::Image::new(my_texture_id, [640.0, 480.0]));
 
-			let scroll_area = egui::ScrollArea::vertical();
-			scroll_area.max_height(ui.available_rect_before_wrap().height()).show(ui, |ui| {
-				image_table(ui, ctx, frame, results, image_id_to_texture_id);
-			});
-		}
-		/*
-		ui.heading("Draw with your mouse to paint:");
-		painting.ui_control(ui);
-		egui::Frame::dark_canvas(ui.style()).show(ui, |ui| {
-			painting.ui_content(ui);
+		let scroll_area = egui::ScrollArea::vertical();
+		scroll_area.max_height(ui.available_rect_before_wrap().height()).show(ui, |ui| {
+			image_table(ui, ctx, frame, results, image_id_to_texture_id);
 		});
-		 */
+	}
+	/*
+	ui.heading("Draw with your mouse to paint:");
+	painting.ui_control(ui);
+	egui::Frame::dark_canvas(ui.style()).show(ui, |ui| {
+		painting.ui_content(ui);
 	});
+	 */
 }

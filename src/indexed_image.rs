@@ -42,7 +42,7 @@ impl IndexedImage {
 				indexed: Instant::now(),
 
 				phash: Some(phash(&img)),
-				semantic_hash: Some(efficientnet_hash(&img)),
+				semantic_hash: None, // Some(efficientnet_hash(&img)),  // Disable for a while because of an annoying inference crash.
 
 				distance_from_query: None,
 			}

@@ -74,6 +74,7 @@ impl Engine {
 		conn.execute(IMAGE_SCHEMA_V1, params![]).unwrap();
 		conn.execute(WATCHED_DIRECTORIES_SCHEMA_V1, NO_PARAMS).unwrap();
 
+		// phashes and semantic hashes should be identical instructure so we can swap them out.
 		conn.execute("CREATE TABLE phashes (id INTEGER PRIMARY KEY, hash BLOB)", params![]).unwrap();
 		conn.execute("CREATE TABLE semantic_hashes (id INTEGER PRIMARY KEY, hash BLOB)", params![]).unwrap();
 		if let Err((_, e)) = conn.close() {
@@ -212,11 +213,11 @@ impl Engine {
 		let conn = self.pool.get().unwrap();
 		let mut stmt = conn.prepare(r#"
 			SELECT images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height, byte_distance(?, image_hashes.hash) AS dist
-			FROM semantic_hashes image_hashes
+			FROM phashes image_hashes
 			JOIN images images ON images.id = image_hashes.id
 			ORDER BY dist ASC
 			LIMIT 100"#).unwrap();
-		let img_cursor = stmt.query_map(params![indexed_image.semantic_hash], |row|{
+		let img_cursor = stmt.query_map(params![indexed_image.phash], |row|{
 			let mut img = indexed_image_from_row(row).unwrap();
 			img.distance_from_query = Some(row.get(8)?);
 			Ok(img)

@@ -97,18 +97,17 @@ impl epi::App for MainApp {
 		});
 
 		egui::CentralPanel::default().show(ctx, |ui|{
-			// Actual search menu.
 			if let Some(engine) = &mut self.engine {
-				ui::search::search_panel(
-					engine,
-					&mut self.image_id_to_texture_id,
-					&mut self.search_text,
-					&mut self.current_page,
-					ctx,
-					frame,
-					ui
-				);
+			match self.active_tab {
+				AppTab::Search => {
+					ui::search::search_panel(engine, &mut self.image_id_to_texture_id, &mut self.search_text, &mut self.current_page, ctx, frame, ui);
+				},
+				AppTab::Folders => {
+					ui::folders::folder_panel(engine, ctx, ui);
+				},
+				_ => (),
 			}
+		}
 		});
 	}
 
