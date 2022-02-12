@@ -13,16 +13,19 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
 
+#[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 enum AppTab {
 	Search,
 	View,
-	Explore,
+	Folders,
 	Settings,
 }
 
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
 struct MainApp {
 	engine: Option<Engine>,
+	active_tab: AppTab,
 	image_id_to_texture_id: HashMap::<i64, egui::TextureId>,  // For storing the thumbnails loaded.
 
 	// Search Tab:
@@ -43,10 +46,13 @@ impl Default for MainApp {
 	fn default() -> Self {
 		MainApp {
 			engine: None,
+			active_tab: AppTab::Search,
+			image_id_to_texture_id: HashMap::new(),
+			
 			search_text: "".to_string(),
 			some_value: 1.0f32,
 			current_page: 0u64,
-			image_id_to_texture_id: HashMap::new(),
+			
 		}
 	}
 }
@@ -82,10 +88,11 @@ impl epi::App for MainApp {
 						frame.quit();
 					}
 				});
-				if ui.button("Search").clicked() {}
-				if ui.button("View").clicked() {}
-				if ui.button("Folders").clicked() {}
-				if ui.button("Settings").clicked() {}
+				
+				ui.selectable_value(&mut self.active_tab, AppTab::Search, "Search");
+				ui.selectable_value(&mut self.active_tab, AppTab::View, "View");
+				ui.selectable_value(&mut self.active_tab, AppTab::Folders, "Folders");
+				ui.selectable_value(&mut self.active_tab, AppTab::Settings, "Settings");
 			});
 		});
 
