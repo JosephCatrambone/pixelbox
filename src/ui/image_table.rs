@@ -3,6 +3,7 @@ use crate::indexed_image::IndexedImage;
 use super::thumbnail_to_egui_element;
 use eframe::{epi, egui::{self, Ui, TextureId}};
 use std::collections::HashMap;
+use open;
 
 pub fn image_table(ui:&mut Ui, ctx: &egui::Context, frame: &epi::Frame, results:Vec<IndexedImage>, thumbnail_cache: &mut HashMap::<i64, TextureId>) {
 	ui.vertical(|ui|{
@@ -16,7 +17,16 @@ pub fn image_table(ui:&mut Ui, ctx: &egui::Context, frame: &epi::Frame, results:
 						tid
 					}
 				};
-				ui.image(tex_id, [res.thumbnail_resolution.0 as f32, res.thumbnail_resolution.1 as f32]);
+				ui.image(tex_id, [res.thumbnail_resolution.0 as f32, res.thumbnail_resolution.1 as f32]).context_menu(|ui|{
+					if ui.button("Open").clicked() {
+						//let _ = std::process::Command::new("open").arg(&res.path).output();
+						open::that(&res.path);
+						ui.close_menu();
+					}
+					if ui.button("Search for Similar").clicked() {
+						ui.close_menu();
+					}
+				});
 				ui.vertical(|ui|{
 					ui.label(format!("Filename: {}", res.filename));
 					ui.label(format!("Path: {}", res.path));

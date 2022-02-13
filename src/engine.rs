@@ -170,14 +170,18 @@ impl Engine {
 		img.id = conn.last_insert_rowid();
 
 		// Add the hashes.
-		conn.execute(
-			"INSERT INTO phashes (id, hash) VALUES (?, ?)",
-			params![img.id, img.phash.unwrap()]
-		)?;
-		conn.execute(
-			"INSERT INTO semantic_hashes (id, hash) VALUES (?, ?)",
-			params![img.id, img.semantic_hash.unwrap()]
-		)?;
+		if let Some(hash) = img.phash {
+			conn.execute(
+				"INSERT INTO phashes (id, hash) VALUES (?, ?)",
+				params![img.id, hash]
+			)?;
+		}
+		if let Some(hash) = img.semantic_hash {
+			conn.execute(
+				"INSERT INTO semantic_hashes (id, hash) VALUES (?, ?)",
+				params![img.id, hash]
+			)?;
+		}
 
 		Ok(())
 	}
@@ -234,6 +238,8 @@ impl Engine {
 	pub fn get_query_results(&self) -> Option<Vec<IndexedImage>> {
 		self.cached_search_results.clone()
 	}
+	
+	pub fn clear_query_results(&mut self) { self.cached_search_results = None; }
 
 	pub fn add_tracked_folder(&mut self, folder_glob:String) {
 		self.pool.get().unwrap().execute("INSERT INTO watched_directories (glob) VALUES (?1)", params![folder_glob]).unwrap();

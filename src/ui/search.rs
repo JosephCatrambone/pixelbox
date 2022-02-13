@@ -24,18 +24,32 @@ pub fn search_panel(
 				_ => (),
 			}
 		}
+		
 		// Universal Search
-		if ui.text_edit_singleline(search_text).clicked() {}
+		if ui.text_edit_singleline(search_text).changed() {
+			engine.query_by_image_name(search_text)
+		}
 	});
 
 	if let Some(results) = engine.get_query_results() {
 		let num_results = results.len();
 		let page_size = 20;
+		
+		ui.heading("Results");
+		//ui.add(egui::Image::new(my_texture_id, [640.0, 480.0]));
+
+		let scroll_area = egui::ScrollArea::vertical();
+		scroll_area
+			.max_width(ui.available_rect_before_wrap().width())
+			.max_height(ui.available_rect_before_wrap().height())
+			.show(ui, |ui| {
+				image_table(ui, ctx, frame, results, image_id_to_texture_id);
+			});
 
 		egui::TopBottomPanel::bottom("bottom_panel")
 			.resizable(false)
 			.min_height(0.0)
-			.show(ctx, |ui| {
+			.show_inside(ui, |ui| {
 				ui.vertical_centered(|ui| {
 					// Pagination:
 					//ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
@@ -51,15 +65,7 @@ pub fn search_panel(
 	ui.separator();
 
 	//ui.label("The central panel the region left after adding TopPanel's and SidePanel's");
-	if let Some(results) = engine.get_query_results() {
-		ui.heading("Results");
-		//ui.add(egui::Image::new(my_texture_id, [640.0, 480.0]));
 
-		let scroll_area = egui::ScrollArea::vertical();
-		scroll_area.max_height(ui.available_rect_before_wrap().height()).show(ui, |ui| {
-			image_table(ui, ctx, frame, results, image_id_to_texture_id);
-		});
-	}
 	/*
 	ui.heading("Draw with your mouse to paint:");
 	painting.ui_control(ui);

@@ -13,9 +13,17 @@ glob = "0.3.0"
 image = "0.23"
 lazy_static = "1.4.0"
 nfd = "0.0.4"  # For Open-File dialogs.
+open = "2.0.2"
 r2d2 = "0.8.9"
 r2d2_sqlite = "0.17.0"
 rayon = "1.5.0"
 rusqlite = { version="0.24.2", features=["bundled", "time", "functions"] } # bundled uses bundled version for Windows.
 serde = { version = "*", features = ["derive"], optional = true }
 tract-onnx = "0.15.8"
+
+[dev-dependencies]
+criterion = "0.3"  # To run benchmarks.  When the nightly bits are merged, we can remove this.
+
+[[bench]]
+name = "image_hashes"
+harness = false
