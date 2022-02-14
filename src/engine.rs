@@ -188,7 +188,6 @@ impl Engine {
 
 	pub fn query_by_image_name(&mut self, text:&String) {
 		self.cached_search_results = None; // Starting query.
-		println!("Searching for {}", text);
 
 		let conn = self.pool.get().unwrap();
 		let mut stmt = conn.prepare(r#"

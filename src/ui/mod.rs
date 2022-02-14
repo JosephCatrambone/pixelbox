@@ -21,7 +21,7 @@ fn thumbnail_to_egui_element(img:&indexed_image::IndexedImage, ctx: &egui::Conte
 		pixels.push(img.thumbnail[i+2]);
 		pixels.push(255u8);
 	}
-	if img.thumbnail_resolution.0*img.thumbnail_resolution.1*4 != pixels.len().try_into().unwrap() {
+	if (img.thumbnail_resolution.0*img.thumbnail_resolution.1*4) as u32 != pixels.len() as u32 {
 		eprintln!("Resolution/byte mismatch.");
 		dbg!("{:?} {:?}", img.thumbnail_resolution, pixels.len());
 		eprintln!("Corrupt thumbnail: fixme and/or make a recovery op, like empty-fill.");  // TODO
