@@ -21,8 +21,6 @@ pub fn search_panel(engine: &mut Engine, ui: &mut Ui, search_text: &mut String) 
 		}
 	});
 
-	
-
 	// If indexing is running, show the status..
 	if engine.is_indexing_active() {
 		ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {

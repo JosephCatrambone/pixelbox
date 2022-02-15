@@ -32,23 +32,22 @@ pub fn search_panel(
 	});
 
 	if let Some(results) = engine.get_query_results() {
-		let num_results = results.len();
-		let page_size = 20;
-		
 		ui.heading("Results");
 		//ui.add(egui::Image::new(my_texture_id, [640.0, 480.0]));
 
-		let scroll_area = egui::ScrollArea::vertical();
-		scroll_area
+		egui::ScrollArea::vertical()
 			.max_width(ui.available_rect_before_wrap().width())
 			.max_height(ui.available_rect_before_wrap().height())
 			.show(ui, |ui| {
 				image_table(ui, ctx, frame, results, image_id_to_texture_id);
 			});
 
+		/*
+		let num_results = results.len();
+		let page_size = 20;
 		egui::TopBottomPanel::bottom("bottom_panel")
-			.resizable(false)
-			.min_height(0.0)
+			.resizable(true)
+			.min_height(15.0)
 			.show_inside(ui, |ui| {
 				ui.vertical_centered(|ui| {
 					// Pagination:
@@ -57,6 +56,7 @@ pub fn search_panel(
 					//});
 				});
 			});
+		*/
 	}
 
 	//ui.hyperlink("https://github.com/emilk/egui_template");
