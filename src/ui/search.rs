@@ -11,7 +11,6 @@ pub fn search_panel(
 		engine: &mut Engine,
 		image_id_to_texture_id: &mut HashMap::<i64, egui::TextureId>,
 		search_text: &mut String,
-		current_page: &mut u64,
 		ctx: &egui::CtxRef,
 		frame: &epi::Frame,
 		ui: &mut egui::Ui
