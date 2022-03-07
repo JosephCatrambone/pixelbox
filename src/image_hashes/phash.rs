@@ -37,24 +37,24 @@ mod test {
 	#[test]
 	fn test_phash() {
 		let mut diff = 0f32;
-		let img = image::open("test_resources/phash_test_a.png").unwrap();
+		let img = image::open("test_resources/phash_test_a.jpg").unwrap();
 		let img_hash = phash(&img);
 
 		// Cases that should match:
 		diff = hamming_distance(&img_hash, &img_hash);
 		assert_eq!(diff, 0f32);
 
-		let img_resize = image::open("test_resources/phash_test_resize.png").unwrap();
+		let img_resize = image::open("test_resources/phash_test_a_resized.jpg").unwrap();
 		let img_resize_hash = phash(&img_resize);
 		diff = hamming_distance(&img_hash, &img_resize_hash);
 		assert!(diff < 0.0001);
 
-		let img_crop = image::open("test_resources/phash_test_crop.png").unwrap();
+		let img_crop = image::open("test_resources/phash_test_a_cropped.jpg").unwrap();
 		let img_crop_hash = phash(&img_crop);
 		diff = hamming_distance(&img_hash, &img_crop_hash);
 		assert!(diff < 0.5);
 
-		let img_rot = image::open("test_resources/phash_test_rot1.png").unwrap();
+		let img_rot = image::open("test_resources/phash_test_a_rotated_5.jpg").unwrap();
 		let img_rot_hash = phash(&img_rot);
 		diff = hamming_distance(&img_hash, &img_rot_hash);
 		assert!(diff < 0.5);
