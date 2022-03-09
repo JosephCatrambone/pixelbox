@@ -1,7 +1,12 @@
+import os
+from typing import Any
+
 import numpy
 import random
 import torch
 import torchvision
+from glob import glob
+from PIL import Image
 from tqdm import tqdm
 
 ENCODER_INPUT_WIDTH = 255
@@ -15,6 +20,7 @@ DEVICE = torch.device("cuda")
 #device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 # Define our mutations to perform on the network.
+# We expect a PIL as an Input and return a Tensor
 corruptions = torchvision.transforms.Compose([
 	torchvision.transforms.RandomVerticalFlip(),
 	torchvision.transforms.RandomHorizontalFlip(),
@@ -50,6 +56,20 @@ def build_model(latent_space: int):
 	return model
 
 
+class PlainImageLoader(torchvision.datasets.VisionDataset):
+	def __init__(self, root):
+		super(PlainImageLoader, self).__init__(root)
+		self.all_image_filenames = glob(os.path.join(root, "*.jpg"))
+		self.all_image_filenames.extend(glob(os.path.join(root, "*.png")))
+
+	def __getitem__(self, index: int) -> Any:
+
+		return Image.open(self.all_image_filenames[index])
+
+	def __len__(self) -> int:
+		return len(self.all_image_filenames)
+
+
 # Set up
 def train(training_data_directory, model=None):
 	if model is None:
@@ -58,36 +78,43 @@ def train(training_data_directory, model=None):
 	# Brace for run...
 	loss_fn = torch.nn.CosineEmbeddingLoss()
 	optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
-	dataset = torchvision.datasets.ImageFolder(training_data_directory, transform=corruptions)
+	#dataset = torchvision.datasets.ImageFolder(training_data_directory, transform=corruptions)
+	dataset = PlainImageLoader(training_data_directory)  # We will do the corruptions ourselves.
 	dataset_loader = torch.utils.data.DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True)
 
 	# Training loop:
 	for epoch_idx in range(EPOCHS):
 		dataloop = tqdm(dataset_loader)
 		total_epoch_loss = 0.0
-		for batch_idx, (data, targets) in enumerate(dataloop):
+		for batch_idx, data in enumerate(dataloop):
 			data = data.to(device=DEVICE)
+			corrupted_data = corruptions(data)
 			optimizer.zero_grad()
 
-			# Forward
-			embeddings = model(data)
+			# Maybe shuffle pairings.
+			labels = torch.Tensor([1] * BATCH_SIZE)  # All entries start paired.
+			for idx in range(BATCH_SIZE-1):
+				if random.choice([True, False]):  # 50/50 shot of swapping this with another entry.
+					# Don't want to re-swap something that was already swapped.
+					for _ in range(3):  # 3 retries
+						swap_index = random.randint(idx+1, BATCH_SIZE)
+						if labels[swap_index] == 1:  # Warning: this is lazy and dumb.
+							break
+					# Swap this pair.
+					temp = corrupted_data[idx, :, :, :]
+					corrupted_data[idx, :, :, :] = corrupted_data[swap_index, :, :, :]
+					corrupted_data[swap_index, :, :, :] = temp
+					labels[idx] = -1
+					labels[swap_index] = -1
+			labels = labels.to(device=DEVICE)
 
-			# One embedding gives us n*(n-1) pairs of datapoints.
-			# We rely on the batch being shuffled and having some of each class, but if the entire batch is unlucky
-			# and we have all one class, it will be okay.
-			# left takes [1, 2, 3, 4] and goes to [1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4]
-			# right takes [1, 2, 3, 4] and goes to [1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4]
-			left = torch.repeat_interleave(embeddings, embeddings.shape[0], axis=0)
-			right = embeddings.repeat(embeddings.shape[0], 1)
-			truth = list()
-			for label_left in targets:
-				for label_right in targets:
-					truth.append(1.0 if label_left == label_right else -1.0)
-			truth = torch.tensor(truth).to(DEVICE)
+			# Forward
+			left = model(data)
+			right = model(corrupted_data)
 
 			# Embedding pairs are 1 if they're the same and -1 if they're not.
 			# We match up embeddings based on their classes.
-			loss = loss_fn(left, right, truth)
+			loss = loss_fn(left, right, labels)
 
 			# Backward
 			loss.backward()
