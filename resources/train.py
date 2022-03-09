@@ -14,7 +14,7 @@ ENCODER_INPUT_HEIGHT = 255
 LATENT_SPACE_SIZE = 8
 LEARNING_RATE = 1e-4
 EPOCHS = 100
-BATCH_SIZE = 16  # Remember that we get this^2 tensor when computing.
+BATCH_SIZE = 4
 
 DEVICE = torch.device("cuda")
 #device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -24,7 +24,6 @@ DEVICE = torch.device("cuda")
 corruptions = torchvision.transforms.Compose([
 	torchvision.transforms.RandomVerticalFlip(),
 	torchvision.transforms.RandomHorizontalFlip(),
-	torchvision.transforms.RandomInvert(),
 	torchvision.transforms.RandomRotation(45),
 	torchvision.transforms.ColorJitter(),
 	torchvision.transforms.Resize(int(ENCODER_INPUT_WIDTH*1.2)),  # 44 pixels of play to reshuffle.
@@ -37,22 +36,25 @@ corruptions = torchvision.transforms.Compose([
 # Define our model.
 def build_model(latent_space: int):
 	model = torch.nn.Sequential(
-		torch.nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, stride=1, padding=1),
+		torch.nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, stride=1, padding=1),
+		torch.nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1),
+		torch.nn.LeakyReLU(inplace=True),
+		torch.nn.AvgPool2d(3),
+		torch.nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1),
 		torch.nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1),
 		torch.nn.LeakyReLU(inplace=True),
 		torch.nn.AvgPool2d(3),
-		torch.nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1),
-		torch.nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1),
-		torch.nn.LeakyReLU(inplace=True),
-		torch.nn.AvgPool2d(3),
-		torch.nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=3, stride=1, padding=1),
+		torch.nn.Conv2d(in_channels=128, out_channels=1024, kernel_size=3, stride=1, padding=1),
 		torch.nn.Conv2d(in_channels=1024, out_channels=128, kernel_size=3, stride=1, padding=1),
 		torch.nn.LeakyReLU(inplace=True),
 		torch.nn.AvgPool2d(3),
 		torch.nn.Flatten(),
 		torch.nn.Linear(in_features=10368, out_features=1024),
-		torch.nn.Linear(in_features=1024, out_features=latent_space)
+		torch.nn.Linear(in_features=1024, out_features=latent_space),
+		torch.nn.Tanh()
 	)
+	print("Built model:")
+	print(model)
 	return model
 
 
@@ -63,8 +65,18 @@ class PlainImageLoader(torchvision.datasets.VisionDataset):
 		self.all_image_filenames.extend(glob(os.path.join(root, "*.png")))
 
 	def __getitem__(self, index: int) -> Any:
-
-		return Image.open(self.all_image_filenames[index])
+		img_left = corruptions(Image.open(self.all_image_filenames[index]).convert("RGB"))
+		if random.choice([True, False]):
+			other_index = random.randint(0, len(self.all_image_filenames)-1)
+			img_right = corruptions(Image.open(self.all_image_filenames[other_index]).convert("RGB"))
+			label = -1.0
+			if other_index == index:
+				label = 1.0  # In the slim cance we happen to pick exactly the same index at random...
+		else:
+			img_right = corruptions(Image.open(self.all_image_filenames[index]).convert("RGB"))
+			label = 1.0
+		label = torch.tensor(label)
+		return img_left, img_right, label
 
 	def __len__(self) -> int:
 		return len(self.all_image_filenames)
@@ -73,7 +85,9 @@ class PlainImageLoader(torchvision.datasets.VisionDataset):
 # Set up
 def train(training_data_directory, model=None):
 	if model is None:
-		model = build_model(10).to(DEVICE)
+		model = build_model(10)
+
+	model = model.to(DEVICE)
 
 	# Brace for run...
 	loss_fn = torch.nn.CosineEmbeddingLoss()
@@ -86,31 +100,15 @@ def train(training_data_directory, model=None):
 	for epoch_idx in range(EPOCHS):
 		dataloop = tqdm(dataset_loader)
 		total_epoch_loss = 0.0
-		for batch_idx, data in enumerate(dataloop):
-			data = data.to(device=DEVICE)
-			corrupted_data = corruptions(data)
+		for batch_idx, (data_left, data_right, labels) in enumerate(dataloop):
+			data_left = data_left.to(device=DEVICE)
+			data_right = data_right.to(device=DEVICE)
+			labels = labels.to(device=DEVICE)
 			optimizer.zero_grad()
 
-			# Maybe shuffle pairings.
-			labels = torch.Tensor([1] * BATCH_SIZE)  # All entries start paired.
-			for idx in range(BATCH_SIZE-1):
-				if random.choice([True, False]):  # 50/50 shot of swapping this with another entry.
-					# Don't want to re-swap something that was already swapped.
-					for _ in range(3):  # 3 retries
-						swap_index = random.randint(idx+1, BATCH_SIZE)
-						if labels[swap_index] == 1:  # Warning: this is lazy and dumb.
-							break
-					# Swap this pair.
-					temp = corrupted_data[idx, :, :, :]
-					corrupted_data[idx, :, :, :] = corrupted_data[swap_index, :, :, :]
-					corrupted_data[swap_index, :, :, :] = temp
-					labels[idx] = -1
-					labels[swap_index] = -1
-			labels = labels.to(device=DEVICE)
-
 			# Forward
-			left = model(data)
-			right = model(corrupted_data)
+			left = model(data_left)
+			right = model(data_right)
 
 			# Embedding pairs are 1 if they're the same and -1 if they're not.
 			# We match up embeddings based on their classes.

@@ -4,9 +4,9 @@ use lazy_static::lazy_static;
 use tract_ndarray::Array;
 use tract_onnx::prelude::*;
 
-const ENCODER_MODEL_PATH:&'static str = "models/encoder_cpu.pt";
-const MODEL_INPUT_WIDTH:usize = 256;
-const MODEL_INPUT_HEIGHT:usize = 256;
+const ENCODER_MODEL_PATH:&'static str = "models/encoder_cpu.onnx";
+const MODEL_INPUT_WIDTH:usize = 255;
+const MODEL_INPUT_HEIGHT:usize = 255;
 const MODEL_LATENT_SIZE:usize = 128;
 
 //static ref ENCODER_MODEL:tch::CModule = tch::CModule::load(ENCODER_MODEL_PATH).expect("Failed to find models at expected location: models/traced_*coder_cpu.pt");
@@ -14,7 +14,7 @@ lazy_static! {
 	static ref MODEL:SimplePlan<TypedFact, Box<dyn TypedOp>, tract_onnx::prelude::Graph<TypedFact, Box<dyn TypedOp>>> =
 		tract_onnx::onnx()
 		// load the model
-		.model_for_path("models/encoder_cpu.onnx")
+		.model_for_path(ENCODER_MODEL_PATH)
 		.expect("Failed to load model from models/encoder_cpu.onnx")
 		// specify input type and shape
 		.with_input_fact(0, InferenceFact::dt_shape(f32::datum_type(), tvec!(1, 3, MODEL_INPUT_HEIGHT as i64, MODEL_INPUT_WIDTH as i64)))
@@ -28,7 +28,7 @@ lazy_static! {
 }
 
 pub fn mlhash(img:&DynamicImage) -> Vec<u8> {
-	let img = img.to_rgb();
+	let img = img.to_rgb8();
 	let resized = image::imageops::resize(&img, MODEL_INPUT_WIDTH as u32, MODEL_INPUT_HEIGHT as u32, ::image::imageops::FilterType::Triangle);
 	//let mean = Array::from_shape_vec((1, 3, 1, 1), vec![0.485, 0.456, 0.406])?;
 	let image: Tensor =

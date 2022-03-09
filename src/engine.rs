@@ -276,6 +276,30 @@ impl Engine {
 	}
 }
 
+//
+// Distance Functions
+// Distance functions should return near zero for almost identical items and a large value for different ones.
+// All of these methods should take the encoded hash as a blob of u8's and return a single f32.
+//
+pub fn cosine_distance(hash_a:&Vec<u8>, hash_b:&Vec<u8>) -> f32 {
+	// Cosine Similarity -> 1.0 is most similar, -1.0 is most different.
+	// We want 0.0 is most similar.
+	let u8_to_float = |u8s: &[u8]| {
+		u8s.iter().map(|v| { ((*v as f32 / 255.0) * 2.0) - 1.0 }).collect::<Vec<f32>>()
+	};
+	let hash_a = u8_to_float(hash_a);
+	let hash_b = u8_to_float(hash_b);
+	dbg!(&hash_a);
+	dbg!(&hash_b);
+	let mag_op = |initial, x| { initial + x*x };
+	let magnitude = hash_a.iter().fold(0f32, mag_op) * hash_b.iter().fold(0f32, mag_op);
+	if magnitude < 1e-6 {
+		return 0.0;
+	}
+	let dot = hash_a.iter().zip(&hash_b).fold(0f32, |initial, (&a, &b)| { initial + (a*b) });
+	(magnitude * dot.max(0.0001)) - 1.0
+}
+
 pub fn byte_distance(hash_a:&Vec<u8>, hash_b:&Vec<u8>) -> f32 {
 	hash_a.iter().zip(hash_b).fold(0f32, |init, (&a, &b)|{init + (a as f32 - b as f32).abs()}) / (255f32 * hash_a.len() as f32)
 }
@@ -291,6 +315,25 @@ pub fn hamming_distance(hash_a:&Vec<u8>, hash_b:&Vec<u8>) -> f32 {
 		bits_set
 	}).sum::<u8>() as f32 / (8f32 * hash_a.len() as f32)
 }
+
+// Add all the wrappers to the SQLite functions so we can use them in the database.
+
+fn make_cosine_distance_db_function(db: &PooledConnection<SqliteConnectionManager>) -> Result<()> {
+	db.create_scalar_function(
+		"cosine_distance",
+		2,
+		FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+		move |ctx| {
+			let dist = {
+				let lhs = ctx.get_raw(0).as_blob().map_err(|e| Error::UserFunctionError(e.into()))?;
+				let rhs = ctx.get_raw(1).as_blob().map_err(|e| Error::UserFunctionError(e.into()))?;
+				cosine_distance(&lhs.to_vec(), &rhs.to_vec())
+			};
+			Ok(dist as f64)
+		}
+	)
+}
+
 
 fn make_byte_distance_db_function(db: &PooledConnection<SqliteConnectionManager>) -> Result<()> {
 	db.create_scalar_function(
@@ -333,9 +376,12 @@ fn make_hamming_distance_db_function(db: &PooledConnection<SqliteConnectionManag
 	)
 }
 
+// End Distance Functions
+
 #[cfg(test)]
 mod tests {
 	use crate::engine::hamming_distance;
+	use crate::engine::cosine_distance;
 
 	#[test]
 	fn test_hamming_distance() {
@@ -345,5 +391,12 @@ mod tests {
 		assert_eq!(hamming_distance(&vec![0b10101010u8], &vec![0b01010101u8]), 1f32);
 		assert_eq!(hamming_distance(&vec![0b10101010u8, 0b01010101u8], &vec![0b01010101u8, 0b10101010u8]), 1f32);
 		assert_eq!(hamming_distance(&vec![0xFFu8, 0x0Fu8], &vec![0x0Fu8, 0x0Fu8]), 0.25f32); // 4 bits are different.
+	}
+	
+	#[test]
+	fn test_cosine_distance() {
+		assert_eq!(cosine_distance(&vec![255u8, 0], &vec![255u8, 0]), 0f32);
+		assert_eq!(cosine_distance(&vec![0, 255], &vec![0, 255]), 0f32);
+		assert_eq!(cosine_distance(&vec![255, 0], &vec![0, 255]), 1e5f32);
 	}
 }
