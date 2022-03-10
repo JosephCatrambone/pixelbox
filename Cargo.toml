@@ -24,6 +24,6 @@ tract-onnx = "0.15.8"
 [dev-dependencies]
 criterion = "0.3"  # To run benchmarks.  When the nightly bits are merged, we can remove this.
 
-[[bench]]
-name = "image_hashes"
-harness = false
+#[[bench]]
+#name = "image_hashes"
+#harness = false

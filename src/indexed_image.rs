@@ -28,7 +28,7 @@ pub struct IndexedImage {
 impl IndexedImage {
 	pub fn from_file_path(path:&Path) -> Result<Self, ImageError> {
 		let mut img = image::open(path)?;
-		let thumb = img.thumbnail(THUMBNAIL_SIZE.0, THUMBNAIL_SIZE.1).to_rgb();
+		let thumb = img.thumbnail(THUMBNAIL_SIZE.0, THUMBNAIL_SIZE.1).to_rgb8();
 
 		Ok(
 			IndexedImage {
@@ -41,8 +41,8 @@ impl IndexedImage {
 				created: Instant::now(),
 				indexed: Instant::now(),
 
-				phash: Some(phash(&img)),
-				semantic_hash: Some(mlhash(&img)),  // Disable for a while because of an annoying inference crash.
+				phash: None, // Some(phash(&img)),  // Disable for a little while to check performance.
+				semantic_hash: Some(mlhash(&img)),
 
 				distance_from_query: None,
 			}

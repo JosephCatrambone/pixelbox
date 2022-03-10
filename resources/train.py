@@ -11,8 +11,8 @@ from tqdm import tqdm
 
 ENCODER_INPUT_WIDTH = 255
 ENCODER_INPUT_HEIGHT = 255
-LATENT_SPACE_SIZE = 8
-LEARNING_RATE = 1e-4
+LATENT_SPACE_SIZE = 64
+LEARNING_RATE = 1e-6
 EPOCHS = 100
 BATCH_SIZE = 4
 
@@ -71,7 +71,7 @@ class PlainImageLoader(torchvision.datasets.VisionDataset):
 			img_right = corruptions(Image.open(self.all_image_filenames[other_index]).convert("RGB"))
 			label = -1.0
 			if other_index == index:
-				label = 1.0  # In the slim cance we happen to pick exactly the same index at random...
+				label = 1.0  # In the slim chance we happen to pick exactly the same index at random...
 		else:
 			img_right = corruptions(Image.open(self.all_image_filenames[index]).convert("RGB"))
 			label = 1.0

@@ -19,6 +19,8 @@ use crate::indexed_image::*;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
+const PARALLEL_FILE_PROCESSORS: usize = 8;
+const DEFAULT_MAX_QUERY_DISTANCE: f64 = 1e6; // f64 implements ToSql in SQLite. f32 doesn't.
 const MAX_PENDING_FILEPATHS: usize = 1000;
 const IMAGE_SCHEMA_V1: &'static str = "CREATE TABLE images (
 	id               INTEGER PRIMARY KEY,
@@ -63,6 +65,7 @@ pub struct Engine {
 	watched_directories_cache: Option<Vec<String>>, // Contains a list of the globs that we monitor.
 
 	// Searching and filtering.
+	max_distance_from_query: f64,
 	cached_search_results: Option<Vec<IndexedImage>>,
 }
 
@@ -91,6 +94,7 @@ impl Engine {
 		let conn = pool.get().unwrap();
 		make_hamming_distance_db_function(&conn);
 		make_byte_distance_db_function(&conn);
+		make_cosine_distance_db_function(&conn);
 
 		Engine {
 			pool,
@@ -100,6 +104,8 @@ impl Engine {
 			files_failed: None,
 			last_indexed: vec![],
 			watched_directories_cache: None,
+			
+			max_distance_from_query: DEFAULT_MAX_QUERY_DISTANCE,
 			cached_search_results: None,
 		}
 	}
@@ -128,6 +134,14 @@ impl Engine {
 	}
 
 	pub fn start_reindexing(&mut self) {
+		// How this works:
+		// We select all our tracked folders from the database, then open a multi-stage pipeline:
+		// The crawl_globs_async begins to parallel crawl the filenames.
+		// As filenames are read, they're sent to the files_pending_processing queue.
+		// As files are read and converted into images they're sent to the files_pending_storage queue.
+		// Another thread (here) checks if images are already in the database and, if not, inserts them.
+		// Successes/failures to insert are reported to failure_tx/success_tx.
+		
 		// Select all our monitored folders and, in parallel, dir walk them to grab new images.
 		let all_globs:Vec<String> = self.get_tracked_folders().clone();
 
@@ -138,7 +152,7 @@ impl Engine {
 
 		// Image Processing Thread.
 		let pool = self.pool.clone();
-		let (file_rx, img_rx) = crawler::crawl_globs_async(all_globs, 8);
+		let (file_rx, img_rx) = crawler::crawl_globs_async(all_globs, PARALLEL_FILE_PROCESSORS);
 		self.files_pending_processing = Some(file_rx.clone());
 		self.files_pending_storage = Some(img_rx.clone());
 		std::thread::spawn(move || {
@@ -215,13 +229,13 @@ impl Engine {
 		let debug_start_db_query = Instant::now();
 		let conn = self.pool.get().unwrap();
 		let mut stmt = conn.prepare(r#"
-			SELECT images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height, byte_distance(?, image_hashes.hash) AS dist
-			FROM phashes image_hashes
+			SELECT images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height, cosine_distance(?, image_hashes.hash) AS dist
+			FROM semantic_hashes image_hashes
 			JOIN images images ON images.id = image_hashes.id
 			ORDER BY dist ASC
 			LIMIT 100"#).unwrap();
-		let img_cursor = stmt.query_map(params![indexed_image.phash], |row|{
-			let mut img = indexed_image_from_row(row).unwrap();
+		let img_cursor = stmt.query_map(params![indexed_image.semantic_hash], |row|{
+			let mut img = indexed_image_from_row(row).expect("Unable to unwrap result from database");
 			img.distance_from_query = Some(row.get(8)?);
 			Ok(img)
 		}).unwrap();
@@ -230,8 +244,10 @@ impl Engine {
 			item.unwrap()
 		}).collect());
 		let debug_end_db_query = Instant::now();
+		
+		let result_count = self.cached_search_results.as_ref().unwrap().len();
 
-		eprintln!("Time to compute image hash: {:?}.  Time to search DB: {:?}", debug_end_load_image-debug_start_load_image, debug_end_db_query-debug_start_db_query);
+		eprintln!("Time to compute image hash: {:?}.  Time to search DB: {:?}  Results: {:?}", debug_end_load_image-debug_start_load_image, debug_end_db_query-debug_start_db_query, result_count);
 	}
 
 	pub fn get_query_results(&self) -> Option<Vec<IndexedImage>> {
@@ -289,15 +305,14 @@ pub fn cosine_distance(hash_a:&Vec<u8>, hash_b:&Vec<u8>) -> f32 {
 	};
 	let hash_a = u8_to_float(hash_a);
 	let hash_b = u8_to_float(hash_b);
-	dbg!(&hash_a);
-	dbg!(&hash_b);
 	let mag_op = |initial, x| { initial + x*x };
-	let magnitude = hash_a.iter().fold(0f32, mag_op) * hash_b.iter().fold(0f32, mag_op);
+	let magnitude = hash_a.iter().fold(0f32, mag_op).sqrt() * hash_b.iter().fold(0f32, mag_op).sqrt();
 	if magnitude < 1e-6 {
 		return 0.0;
 	}
 	let dot = hash_a.iter().zip(&hash_b).fold(0f32, |initial, (&a, &b)| { initial + (a*b) });
-	(magnitude * dot.max(0.0001)) - 1.0
+	let cosine_similarity = dot / magnitude;
+	(1.0 / cosine_similarity.max(1e-6)) - 1.0
 }
 
 pub fn byte_distance(hash_a:&Vec<u8>, hash_b:&Vec<u8>) -> f32 {
@@ -395,8 +410,8 @@ mod tests {
 	
 	#[test]
 	fn test_cosine_distance() {
-		assert_eq!(cosine_distance(&vec![255u8, 0], &vec![255u8, 0]), 0f32);
-		assert_eq!(cosine_distance(&vec![0, 255], &vec![0, 255]), 0f32);
-		assert_eq!(cosine_distance(&vec![255, 0], &vec![0, 255]), 1e5f32);
+		assert!(cosine_distance(&vec![255u8, 0], &vec![255u8, 0]) < 1e-6f32); // <1,-1> . <1,-1> -> 2 /
+		assert!(cosine_distance(&vec![0, 255], &vec![0, 255]) < 1e-6f32);
+		assert!(cosine_distance(&vec![255, 0], &vec![0, 255]) > 2.0f32);
 	}
 }
