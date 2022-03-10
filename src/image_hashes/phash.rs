@@ -5,7 +5,7 @@ pub fn phash(img:&DynamicImage) -> Vec<u8> {
 	let img_width = 16;
 	let img_height = 16;
 	let small = img.resize(img_width, img_height, image::imageops::Gaussian);
-	let grey = small.to_luma().to_vec();
+	let grey = small.as_luma8().expect("Converting image to greyscale failed.").to_vec();
 	let total_hash_bytes = grey.len() / 8;
 	let mean = (grey.iter().map(|&x|{ x as u64 }).sum::<u64>() / ((img_width*img_height) as u64)) as u8;
 	let bytes: Vec<u8> = (0..total_hash_bytes).into_iter().map(|byte_idx|{
@@ -66,5 +66,13 @@ mod test {
 		assert!(hamming_distance(&flat_hash, &img_resize_hash) > 0.5);
 		assert!(hamming_distance(&flat_hash, &img_crop_hash) > 0.5);
 		assert!(hamming_distance(&flat_hash, &img_rot_hash) > 0.5);
+	}
+	
+	#[bench]
+	fn bench_phash(b: &mut test::Bencher) {
+		let img = image::open("test_resources/flat_white.png").unwrap();
+		b.bench_function("plain_phash_256x256", move |bencher|{
+			phash(&img);
+		});
 	}
 }
