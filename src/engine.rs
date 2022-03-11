@@ -47,7 +47,7 @@ fn indexed_image_from_row(row: &Row) -> Result<IndexedImage> {
 		created: Instant::now(), //row.get(8)?
 		indexed: Instant::now(), //row.get(9)?
 		phash: None,
-		semantic_hash: None,
+		visual_hash: None,
 		distance_from_query: None,
 	})
 }
@@ -190,7 +190,7 @@ impl Engine {
 				params![img.id, hash]
 			)?;
 		}
-		if let Some(hash) = img.semantic_hash {
+		if let Some(hash) = img.visual_hash {
 			conn.execute(
 				"INSERT INTO semantic_hashes (id, hash) VALUES (?, ?)",
 				params![img.id, hash]
@@ -232,9 +232,10 @@ impl Engine {
 			SELECT images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height, cosine_distance(?, image_hashes.hash) AS dist
 			FROM semantic_hashes image_hashes
 			JOIN images images ON images.id = image_hashes.id
+			WHERE dist < ?
 			ORDER BY dist ASC
 			LIMIT 100"#).unwrap();
-		let img_cursor = stmt.query_map(params![indexed_image.semantic_hash], |row|{
+		let img_cursor = stmt.query_map(params![indexed_image.visual_hash, self.max_distance_from_query], |row|{
 			let mut img = indexed_image_from_row(row).expect("Unable to unwrap result from database");
 			img.distance_from_query = Some(row.get(8)?);
 			Ok(img)
