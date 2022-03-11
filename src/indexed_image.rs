@@ -20,7 +20,8 @@ pub struct IndexedImage {
 	pub indexed: Instant,
 
 	pub phash: Option<Vec<u8>>,
-	pub semantic_hash: Option<Vec<u8>>,
+	pub visual_hash: Option<Vec<u8>>, // For visual-similarity, like style and structure.  Not for content.
+	//pub content_hash: Option<Vec<u8>>, //
 
 	pub distance_from_query: Option<f64>,
 }
@@ -42,7 +43,7 @@ impl IndexedImage {
 				indexed: Instant::now(),
 
 				phash: None, // Some(phash(&img)),  // Disable for a little while to check performance.
-				semantic_hash: Some(mlhash(&img)),
+				visual_hash: Some(mlhash(&img)),
 
 				distance_from_query: None,
 			}
