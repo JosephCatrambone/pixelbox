@@ -16,6 +16,7 @@ use std::time::Duration;
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 enum AppTab {
+	Start,
 	Search,
 	View,
 	Folders,
@@ -28,6 +29,8 @@ struct MainApp {
 	active_tab: AppTab,
 	image_id_to_texture_id: HashMap::<i64, egui::TextureId>,  // For storing the thumbnails loaded.
 
+	// Start Tab:
+	
 	// Search Tab:
 	search_text: String,
 	some_value: f32,
@@ -46,7 +49,7 @@ impl Default for MainApp {
 	fn default() -> Self {
 		MainApp {
 			engine: None,
-			active_tab: AppTab::Search,
+			active_tab: AppTab::Start,
 			image_id_to_texture_id: HashMap::new(),
 			
 			search_text: "".to_string(),
@@ -68,7 +71,8 @@ impl epi::App for MainApp {
 						match result {
 							nfd::Response::Okay(file_path) => {
 								// TODO: Shutdown old engine.
-								self.engine = Some(Engine::new(Path::new(&file_path)))
+								self.engine = Some(Engine::new(Path::new(&file_path)));
+								self.active_tab = AppTab::Folders;  // Transition right away to tracking new folders.
 							},
 							nfd::Response::OkayMultiple(files) => (),
 							nfd::Response::Cancel => (),
@@ -98,16 +102,21 @@ impl epi::App for MainApp {
 
 		egui::CentralPanel::default().show(ctx, |ui|{
 			if let Some(engine) = &mut self.engine {
-			match self.active_tab {
-				AppTab::Search => {
-					ui::search::search_panel(engine, &mut self.image_id_to_texture_id, &mut self.search_text, ctx, frame, ui);
-				},
-				AppTab::Folders => {
-					ui::folders::folder_panel(engine, ctx, ui);
-				},
-				_ => (),
+				match self.active_tab {
+					AppTab::Start => {
+					
+					},
+					AppTab::Search => {
+						ui::search::search_panel(engine, &mut self.image_id_to_texture_id, &mut self.search_text, ctx, frame, ui);
+					},
+					AppTab::Folders => {
+						ui::folders::folder_panel(engine, ctx, ui);
+					},
+					_ => (),
+				}
+			} else {
+				ui::start::start_panel(ctx, frame, ui);
 			}
-		}
 		});
 	}
 
