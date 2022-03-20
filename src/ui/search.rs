@@ -35,8 +35,7 @@ pub fn search_panel(
 		//ui.add(egui::Image::new(my_texture_id, [640.0, 480.0]));
 
 		egui::ScrollArea::vertical()
-			.max_width(ui.available_rect_before_wrap().width())
-			.max_height(ui.available_rect_before_wrap().height())
+			.auto_shrink([false, false])
 			.show(ui, |ui| {
 				image_table(ui, ctx, frame, results, image_id_to_texture_id);
 			});
