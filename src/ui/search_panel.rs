@@ -32,11 +32,16 @@ pub fn search_panel(engine: &mut Engine, ui: &mut Ui, search_text: &mut String) 
 			});
 		});
 	} else {
+		// Default: show placeholder with 'drag image here or start typing'.
+		// 'advanced' will drop down the option with checkboxes for 'search by style' and 'search by tags' or 'search by contents' or 'search by style'.
+
 		// Indexing is not running, so show our search options:
 		if ui.button("Search by Image").clicked() {
 			let result = nfd::open_file_dialog(None, None).unwrap();
 			match result {
-				nfd::Response::Okay(file_path) => engine.query_by_image_hash_from_file(Path::new(&file_path)),
+				nfd::Response::Okay(file_path) => {
+					*search_text = format!("file:{file_path}");
+				},
 				nfd::Response::OkayMultiple(files) => (),
 				nfd::Response::Cancel => (),
 			}
@@ -44,9 +49,13 @@ pub fn search_panel(engine: &mut Engine, ui: &mut Ui, search_text: &mut String) 
 
 		ui.separator();
 
-		if ui.text_edit_singleline(search_text).changed() || ui.button("Search by Text").clicked() {
+		if ui.text_edit_singleline(search_text).changed() {
 			engine.query_by_image_name(&search_text.clone());
 		}
+
+		ui.separator();
+
+		//if ui.checkbox(advanced_mode, "Advanced Search").clicked() {}
 	}
 
 	/*

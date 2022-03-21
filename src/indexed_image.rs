@@ -1,5 +1,6 @@
 use std::time::Instant;
 use std::path::Path;
+//use exif::{Field, Exif, };
 use image::{ImageError, GenericImageView};
 
 use crate::image_hashes::phash;
@@ -29,7 +30,16 @@ pub struct IndexedImage {
 impl IndexedImage {
 	pub fn from_file_path(path:&Path) -> Result<Self, ImageError> {
 		let mut img = image::open(path)?;
+
 		let thumb = img.thumbnail(THUMBNAIL_SIZE.0, THUMBNAIL_SIZE.1).to_rgb8();
+
+		// Also parse the EXIF data.
+		// I wish we didn't need to re-read the file.  :|
+		//let exifreader = exif::Reader::new();
+		//let exif = exifreader.read_from_container(&mut bufreader)?;
+
+		// And generate a perceptual hash.
+		let hash = Some(mlhash(&img));
 
 		Ok(
 			IndexedImage {
@@ -43,7 +53,7 @@ impl IndexedImage {
 				indexed: Instant::now(),
 
 				phash: None, // Some(phash(&img)),  // Disable for a little while to check performance.
-				visual_hash: Some(mlhash(&img)),
+				visual_hash: hash,
 
 				distance_from_query: None,
 			}
