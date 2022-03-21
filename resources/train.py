@@ -36,16 +36,16 @@ corruptions = torchvision.transforms.Compose([
 # Define our model.
 def build_model(latent_space: int):
 	model = torch.nn.Sequential(
-		torch.nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, stride=1, padding=1),
-		torch.nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1),
-		torch.nn.LeakyReLU(inplace=True),
-		torch.nn.AvgPool2d(3),
-		torch.nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1),
+		torch.nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, stride=1, padding=1),
 		torch.nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1),
 		torch.nn.LeakyReLU(inplace=True),
 		torch.nn.AvgPool2d(3),
-		torch.nn.Conv2d(in_channels=128, out_channels=1024, kernel_size=3, stride=1, padding=1),
-		torch.nn.Conv2d(in_channels=1024, out_channels=128, kernel_size=3, stride=1, padding=1),
+		torch.nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1),
+		torch.nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1),
+		torch.nn.LeakyReLU(inplace=True),
+		torch.nn.AvgPool2d(3),
+		torch.nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=3, stride=1, padding=1),
+		torch.nn.Conv2d(in_channels=1024, out_channels=128, kernel_size=3, stride=1, padding=1),  # Bottleneck!
 		torch.nn.LeakyReLU(inplace=True),
 		torch.nn.AvgPool2d(3),
 		torch.nn.Flatten(),
@@ -62,7 +62,21 @@ class PlainImageLoader(torchvision.datasets.VisionDataset):
 	def __init__(self, root):
 		super(PlainImageLoader, self).__init__(root)
 		self.all_image_filenames = glob(os.path.join(root, "*.jpg"))
+		self.all_image_filenames.extend(glob(os.path.join(root, "**", "*.jpg")))  # Include subdirectories.
 		self.all_image_filenames.extend(glob(os.path.join(root, "*.png")))
+		self.all_image_filenames.extend(glob(os.path.join(root, "**", "*.png")))
+		# Filter images that can't get loaded.  This is a little slow but saves some headache.
+		to_remove = list()
+		for filename in self.all_image_filenames:
+			try:
+				_ = Image.open(filename).convert("RGB")
+			except KeyboardInterrupt:
+				raise
+			except Exception as e:
+				print(f"Failed to read {filename}: {e}")
+				to_remove.append(filename)
+		for filename in to_remove:
+			self.all_image_filenames.remove(filename)
 
 	def __getitem__(self, index: int) -> Any:
 		img_left = corruptions(Image.open(self.all_image_filenames[index]).convert("RGB"))
@@ -138,7 +152,7 @@ def finalize(encoder):
 
 def main():
 	model = build_model(LATENT_SPACE_SIZE)
-	train("/home/joseph/Pictures", model)
+	train("E:\\Dropbox\\Photos", model)
 	finalize(model)
 
 if __name__ == "__main__":
