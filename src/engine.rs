@@ -9,7 +9,7 @@ use image::{ImageError, DynamicImage};
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
 use rayon::prelude::*;
-use rusqlite::{params, Connection, Error, Result, NO_PARAMS, Row};
+use rusqlite::{params, Connection, Error, Result, NO_PARAMS, Row, ToSql};
 use rusqlite::functions::FunctionFlags;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -35,6 +35,7 @@ const IMAGE_SCHEMA_V1: &'static str = "CREATE TABLE images (
 	indexed          DATETIME
 )";
 const WATCHED_DIRECTORIES_SCHEMA_V1: &'static str = "CREATE TABLE watched_directories (glob TEXT PRIMARY KEY)";
+const HASH_TABLE_SCHEMA_V1: &'static str = "CREATE TABLE ? (image_id INTEGER PRIMARY KEY, hash BLOB)";
 
 fn indexed_image_from_row(row: &Row) -> Result<IndexedImage> {
 	Ok(IndexedImage {
@@ -78,8 +79,8 @@ impl Engine {
 		conn.execute(WATCHED_DIRECTORIES_SCHEMA_V1, NO_PARAMS).unwrap();
 
 		// phashes and semantic hashes should be identical instructure so we can swap them out.
-		conn.execute("CREATE TABLE phashes (id INTEGER PRIMARY KEY, hash BLOB)", params![]).unwrap();
-		conn.execute("CREATE TABLE semantic_hashes (id INTEGER PRIMARY KEY, hash BLOB)", params![]).unwrap();
+		conn.execute(HASH_TABLE_SCHEMA_V1, params!["phashes",]).unwrap();
+		conn.execute(HASH_TABLE_SCHEMA_V1, params!["semantic_hashes",]).unwrap();
 		if let Err((_, e)) = conn.close() {
 			eprintln!("Failed to close db after table creation: {}", e);
 		}
@@ -186,18 +187,56 @@ impl Engine {
 		// Add the hashes.
 		if let Some(hash) = img.phash {
 			conn.execute(
-				"INSERT INTO phashes (id, hash) VALUES (?, ?)",
+				"INSERT INTO phashes (image_id, hash) VALUES (?, ?)",
 				params![img.id, hash]
 			)?;
 		}
 		if let Some(hash) = img.visual_hash {
 			conn.execute(
-				"INSERT INTO semantic_hashes (id, hash) VALUES (?, ?)",
+				"INSERT INTO semantic_hashes (image_id, hash) VALUES (?, ?)",
 				params![img.id, hash]
 			)?;
 		}
 
 		Ok(())
+	}
+
+	pub fn query(&mut self, text:&String) {
+		// This will parse and process the full query.
+		// Magic phrases:
+		// filename: matches filename
+		// image: or file: does semantic matching
+		// tags: matches tags, comma-separated
+		// metadata: matches metadata
+		// min_width:, max_width:, min_height:, max_height:
+		// Absent all that, full-text search on all of these.
+
+		self.cached_search_results = None;
+
+		let conn = self.pool.get().unwrap();
+		let mut params:Vec<&dyn ToSql> = vec![];
+		let mut fields = "images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height ".to_string();
+		let mut source_table = "images ".to_string();
+		let mut order_by = String::new();  // Empty!
+
+		// If there's image: or file: in the query we need to load it and join to the fields.
+		if text.contains("file:") || text.contains("image:") {
+			fields += "cosine_distance(?, image_hashes.hash) AS dist";
+			source_table += "JOIN semantic_hashes image_hashes ON images.id = image_hashes.image_id";
+			order_by = "dist DESC".to_string();
+			//params.push(indexed_image.visual_hash);
+		}
+
+		let mut raw_statement = "SELECT {fields} FROM {source_table} WHERE {where_clause} ORDER BY {order_by}";
+
+		let mut prepared_statement = conn.prepare(raw_statement).unwrap();
+		let result_cursor = prepared_statement.query_map(params![], |row| {
+			Ok(indexed_image_from_row(row).expect("Unable to decode image in database."))
+		}).unwrap();
+
+		self.cached_search_results = result_cursor.map(|item|{
+			Some(item.unwrap())
+		}).collect();
 	}
 
 	pub fn query_by_image_name(&mut self, text:&String) {
@@ -231,7 +270,7 @@ impl Engine {
 		let mut stmt = conn.prepare(r#"
 			SELECT images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height, cosine_distance(?, image_hashes.hash) AS dist
 			FROM semantic_hashes image_hashes
-			JOIN images images ON images.id = image_hashes.id
+			JOIN images images ON images.id = image_hashes.image_id
 			WHERE dist < ?
 			ORDER BY dist ASC
 			LIMIT 100"#).unwrap();

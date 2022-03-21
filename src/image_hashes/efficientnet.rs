@@ -28,7 +28,7 @@ lazy_static! {
 }
 
 pub fn efficientnet_hash(img:&DynamicImage) -> Vec<u8> {
-	let img = img.to_rgb();
+	let img = img.to_rgb8();
 	let resized = image::imageops::resize(&img, MODEL_INPUT_WIDTH as u32, MODEL_INPUT_HEIGHT as u32, ::image::imageops::FilterType::Triangle);
 	//let mean = Array::from_shape_vec((1, 3, 1, 1), vec![0.485, 0.456, 0.406])?;
 	let image: Tensor =
