@@ -42,7 +42,8 @@ pub fn folder_panel(
 			});
 		}
 	});
-	
+
+	// If we happen to be reindexing, show the most recent items and the progress so far.
 	if engine.is_indexing_active() {
 		egui::TopBottomPanel::bottom("bottom_panel")
 			.resizable(true)

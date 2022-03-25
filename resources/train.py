@@ -1,5 +1,8 @@
+import json
 import os
-from typing import Any
+from collections import namedtuple
+from datetime import datetime
+from typing import Any, Type
 
 import numpy
 import random
@@ -9,43 +12,24 @@ from glob import glob
 from PIL import Image
 from tqdm import tqdm
 
-ENCODER_INPUT_WIDTH = 255
-ENCODER_INPUT_HEIGHT = 255
-LATENT_SPACE_SIZE = 64
-LEARNING_RATE = 1e-6
-EPOCHS = 100
-BATCH_SIZE = 4
+Configuration = namedtuple("Configuration", "ENCODER_INPUT_WIDTH ENCODER_INPUT_HEIGHT LATENT_SPACE_SIZE LEARNING_RATE EPOCHS BATCH_SIZE DATA_PATH ARCHITECTURE NOTES")
 
 DEVICE = torch.device("cuda")
 #device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-# Define our mutations to perform on the network.
-# We expect a PIL as an Input and return a Tensor
-corruptions = torchvision.transforms.Compose([
-	torchvision.transforms.RandomVerticalFlip(),
-	torchvision.transforms.RandomHorizontalFlip(),
-	torchvision.transforms.RandomRotation(45),
-	torchvision.transforms.ColorJitter(),
-	torchvision.transforms.Resize(int(ENCODER_INPUT_WIDTH*1.2)),  # 44 pixels of play to reshuffle.
-	#torchvision.transforms.CenterCrop
-	torchvision.transforms.RandomResizedCrop((ENCODER_INPUT_WIDTH, ENCODER_INPUT_HEIGHT)),  # This might be backwards.
-	torchvision.transforms.ToTensor(),
-])
-
-
 # Define our model.
 def build_model(latent_space: int):
 	model = torch.nn.Sequential(
-		torch.nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, stride=1, padding=1),
+		torch.nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, stride=1, padding=1),
+		torch.nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1),
+		torch.nn.LeakyReLU(inplace=True),
+		torch.nn.AvgPool2d(3),
+		torch.nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1),
 		torch.nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1),
 		torch.nn.LeakyReLU(inplace=True),
 		torch.nn.AvgPool2d(3),
 		torch.nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1),
-		torch.nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1),
-		torch.nn.LeakyReLU(inplace=True),
-		torch.nn.AvgPool2d(3),
-		torch.nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=3, stride=1, padding=1),
-		torch.nn.Conv2d(in_channels=1024, out_channels=128, kernel_size=3, stride=1, padding=1),  # Bottleneck!
+		torch.nn.Conv2d(in_channels=256, out_channels=128, kernel_size=3, stride=1, padding=1),  # Bottleneck!
 		torch.nn.LeakyReLU(inplace=True),
 		torch.nn.AvgPool2d(3),
 		torch.nn.Flatten(),
@@ -59,12 +43,15 @@ def build_model(latent_space: int):
 
 
 class PlainImageLoader(torchvision.datasets.VisionDataset):
-	def __init__(self, root):
+	def __init__(self, root, corruptions):
 		super(PlainImageLoader, self).__init__(root)
+		self.corruptions = corruptions
 		self.all_image_filenames = glob(os.path.join(root, "*.jpg"))
 		self.all_image_filenames.extend(glob(os.path.join(root, "**", "*.jpg")))  # Include subdirectories.
 		self.all_image_filenames.extend(glob(os.path.join(root, "*.png")))
 		self.all_image_filenames.extend(glob(os.path.join(root, "**", "*.png")))
+		self.all_image_filenames.extend(glob(os.path.join(root, "*.gif")))
+		self.all_image_filenames.extend(glob(os.path.join(root, "**", "*.gif")))
 		# Filter images that can't get loaded.  This is a little slow but saves some headache.
 		to_remove = list()
 		for filename in self.all_image_filenames:
@@ -77,17 +64,18 @@ class PlainImageLoader(torchvision.datasets.VisionDataset):
 				to_remove.append(filename)
 		for filename in to_remove:
 			self.all_image_filenames.remove(filename)
+		print(f"Training set has {len(self.all_image_filenames)} images.")
 
 	def __getitem__(self, index: int) -> Any:
-		img_left = corruptions(Image.open(self.all_image_filenames[index]).convert("RGB"))
+		img_left = self.corruptions(Image.open(self.all_image_filenames[index]).convert("RGB"))
 		if random.choice([True, False]):
 			other_index = random.randint(0, len(self.all_image_filenames)-1)
-			img_right = corruptions(Image.open(self.all_image_filenames[other_index]).convert("RGB"))
+			img_right = self.corruptions(Image.open(self.all_image_filenames[other_index]).convert("RGB"))
 			label = -1.0
 			if other_index == index:
 				label = 1.0  # In the slim chance we happen to pick exactly the same index at random...
 		else:
-			img_right = corruptions(Image.open(self.all_image_filenames[index]).convert("RGB"))
+			img_right = self.corruptions(Image.open(self.all_image_filenames[index]).convert("RGB"))
 			label = 1.0
 		label = torch.tensor(label)
 		return img_left, img_right, label
@@ -97,21 +85,33 @@ class PlainImageLoader(torchvision.datasets.VisionDataset):
 
 
 # Set up
-def train(training_data_directory, model=None):
-	if model is None:
-		model = build_model(10)
-
+def train(model, config: Type[Configuration]):
 	model = model.to(DEVICE)
+
+	training_data_directory = config.DATA_PATH
+
+	# Define our mutations to perform on the network.
+	# We expect a PIL as an Input and return a Tensor
+	corruptions = torchvision.transforms.Compose([
+		#torchvision.transforms.RandomVerticalFlip(),
+		#torchvision.transforms.RandomHorizontalFlip(),
+		torchvision.transforms.RandomRotation(25),
+		torchvision.transforms.ColorJitter(),
+		torchvision.transforms.Resize(int(config.ENCODER_INPUT_WIDTH*1.2)),  # 44 pixels of play to reshuffle.
+		#torchvision.transforms.CenterCrop
+		torchvision.transforms.RandomResizedCrop((config.ENCODER_INPUT_WIDTH, config.ENCODER_INPUT_HEIGHT)),  # This might be backwards.
+		torchvision.transforms.ToTensor(),
+	])
 
 	# Brace for run...
 	loss_fn = torch.nn.CosineEmbeddingLoss()
-	optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+	optimizer = torch.optim.Adam(model.parameters(), lr=config.LEARNING_RATE)
 	#dataset = torchvision.datasets.ImageFolder(training_data_directory, transform=corruptions)
-	dataset = PlainImageLoader(training_data_directory)  # We will do the corruptions ourselves.
-	dataset_loader = torch.utils.data.DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True)
+	dataset = PlainImageLoader(training_data_directory, corruptions)  # We will do the corruptions ourselves.
+	dataset_loader = torch.utils.data.DataLoader(dataset, batch_size=config.BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True)
 
 	# Training loop:
-	for epoch_idx in range(EPOCHS):
+	for epoch_idx in range(config.EPOCHS):
 		dataloop = tqdm(dataset_loader)
 		total_epoch_loss = 0.0
 		for batch_idx, (data_left, data_right, labels) in enumerate(dataloop):
@@ -135,25 +135,44 @@ def train(training_data_directory, model=None):
 			# Log status.
 			total_epoch_loss += loss.item()
 
-		print(f"Total epoch loss: {total_epoch_loss}")
+		print(f"Epoch [{epoch_idx}/{config.EPOCHS}] loss: {total_epoch_loss}")
 		torch.save(model.state_dict(), f"checkpoints/checkpoint_{epoch_idx}")
 	torch.save(model, "result_model.pt")
 
 
-def finalize(encoder):
+def finalize(encoder, config):
 	# Build final model:
 	device = torch.device("cpu")
 	encoder_cpu = encoder.to(device)
-	example = torch.rand(1, 3, ENCODER_INPUT_HEIGHT, ENCODER_INPUT_WIDTH).to(device)
+	example = torch.rand(1, 3, config.ENCODER_INPUT_HEIGHT, config.ENCODER_INPUT_WIDTH).to(device)
 	torch.onnx.export(encoder_cpu, example, "encoder_cpu.onnx", example_outputs=encoder_cpu(example), opset_version=11)
 	traced_script_module = torch.jit.trace(encoder_cpu, example)
 	traced_script_module.save("encoder_cpu.pt")
 
 
 def main():
-	model = build_model(LATENT_SPACE_SIZE)
-	train("E:\\Dropbox\\Photos", model)
-	finalize(model)
+	latent_space = 8
+	model = build_model(latent_space)
+	config = Configuration(
+		ENCODER_INPUT_WIDTH=255,
+		ENCODER_INPUT_HEIGHT=255,
+		LATENT_SPACE_SIZE=latent_space,
+		LEARNING_RATE=1e-6,
+		EPOCHS=100,
+		BATCH_SIZE=32,
+		DATA_PATH="E:\\Pictures",
+		ARCHITECTURE=str(model),
+		NOTES="""The smaller model is either garbage or insufficiently trained.  Losses were near zero at the end, so 
+		I have to speculate that it's just not big enough to capture the kinds of data in which we're interested.  I'm
+		going to remove the horizontal and vertical random flips because I think it might be hurting the approximate
+		hashing.  Also using -1, 1 for cosine distance again."""
+	)
+	log_timestamp = datetime.strftime(datetime.now(), "%Y%m%d%H%M%S")
+	with open(f"./experiment_log_{log_timestamp}.txt", 'wt') as fout:
+		json.dump(config._asdict(), fout)
+	train(model, config)
+	finalize(model, config)
+
 
 if __name__ == "__main__":
 	main()
