@@ -35,7 +35,7 @@ const IMAGE_SCHEMA_V1: &'static str = "CREATE TABLE images (
 	indexed          DATETIME
 )";
 const WATCHED_DIRECTORIES_SCHEMA_V1: &'static str = "CREATE TABLE watched_directories (glob TEXT PRIMARY KEY)";
-const HASH_TABLE_SCHEMA_V1: &'static str = "CREATE TABLE ? (image_id INTEGER PRIMARY KEY, hash BLOB)";
+const HASH_TABLE_SCHEMA_V1: &'static str = "CREATE TABLE $tablename$ (image_id INTEGER PRIMARY KEY, hash BLOB)";
 
 fn indexed_image_from_row(row: &Row) -> Result<IndexedImage> {
 	Ok(IndexedImage {
@@ -79,8 +79,9 @@ impl Engine {
 		conn.execute(WATCHED_DIRECTORIES_SCHEMA_V1, NO_PARAMS).unwrap();
 
 		// phashes and semantic hashes should be identical instructure so we can swap them out.
-		conn.execute(HASH_TABLE_SCHEMA_V1, params!["phashes",]).unwrap();
-		conn.execute(HASH_TABLE_SCHEMA_V1, params!["semantic_hashes",]).unwrap();
+		// Can't use prepared statements for CREATE TABLE, so we have to substitute $tablename$.
+		conn.execute(&HASH_TABLE_SCHEMA_V1.replace("$tablename$", "phashes"), params![]).unwrap();
+		conn.execute(&HASH_TABLE_SCHEMA_V1.replace("$tablename$", "semantic_hashes"), params![]).unwrap();
 		if let Err((_, e)) = conn.close() {
 			eprintln!("Failed to close db after table creation: {}", e);
 		}
@@ -92,10 +93,11 @@ impl Engine {
 		let manager = SqliteConnectionManager::file(filename);
 		let pool = r2d2::Pool::new(manager).unwrap();
 
-		let conn = pool.get().unwrap();
+		let mut conn = pool.get().unwrap();
 		make_hamming_distance_db_function(&conn);
 		make_byte_distance_db_function(&conn);
 		make_cosine_distance_db_function(&conn);
+		conn.transaction().unwrap().commit();
 
 		Engine {
 			pool,
@@ -152,6 +154,8 @@ impl Engine {
 		self.files_failed = Some(failure_rx);
 
 		// Image Processing Thread.
+		// file_rx / files_pending_processing
+		// img_rx / files_pending_storage
 		let pool = self.pool.clone();
 		let (file_rx, img_rx) = crawler::crawl_globs_async(all_globs, PARALLEL_FILE_PROCESSORS);
 		self.files_pending_processing = Some(file_rx.clone());
