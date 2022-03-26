@@ -61,7 +61,9 @@ impl Default for MainApp {
 }
 
 impl epi::App for MainApp {
-	fn update(&mut self, ctx: &egui::CtxRef, frame: &epi::Frame) {
+	fn update(&mut self, ctx: &egui::Context, frame: &epi::Frame) {
+		ctx.set_visuals(egui::Visuals::dark());
+
 		egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
 			// Main Menu
 			egui::menu::bar(ui, |ui| {
@@ -107,7 +109,7 @@ impl epi::App for MainApp {
 					
 					},
 					AppTab::Search => {
-						ui::search::search_panel(engine, &mut self.image_id_to_texture_id, &mut self.search_text, ctx, frame, ui);
+						ui::search::search_panel(engine, &mut self.image_id_to_texture_id, &mut self.search_text, ctx, ui);
 					},
 					AppTab::Folders => {
 						ui::folders::folder_panel(engine, ctx, ui);
@@ -115,7 +117,7 @@ impl epi::App for MainApp {
 					_ => (),
 				}
 			} else {
-				ui::start::start_panel(ctx, frame, ui);
+				ui::start::start_panel(ui);
 			}
 		});
 	}
