@@ -1,11 +1,10 @@
 use crate::indexed_image::IndexedImage;
-use super::thumbnail_to_egui_element;
 use eframe::{epi, egui::{self, Ui, TextureId}};
 use std::collections::HashMap;
 
 // TODO: Maybe move the thumbnail cache fill out of this method.
 
-pub fn image_grid(ui:&mut Ui, ctx: &egui::Context, frame: &mut epi::Frame, results:Vec<IndexedImage>, thumbnail_cache: &mut HashMap::<i64, TextureId>, thumbnail_size:(f32, f32)) {
+pub fn image_grid(ui:&mut Ui, frame: &mut epi::Frame, results:Vec<IndexedImage>, thumbnail_cache: &mut HashMap::<i64, TextureId>, thumbnail_size:(f32, f32)) {
 	let num_results = results.len();
 	let num_columns = (ui.available_width() / thumbnail_size.0).max(1.0f32) as usize;
 	//let num_rows = num_results / num_columns;
@@ -18,16 +17,8 @@ pub fn image_grid(ui:&mut Ui, ctx: &egui::Context, frame: &mut epi::Frame, resul
 			for row in 0..(num_results / num_columns) {
 				for col in 0..num_columns {
 					let res = &results[col + row * num_columns];
-					let tex_id = match thumbnail_cache.get(&res.id) {
-						Some(tid) => *tid,
-						None => {
-							let tid = thumbnail_to_egui_element(&results[col + row * num_columns], ctx, frame);
-							thumbnail_cache.insert(results[col + row * num_columns].id, tid);
-							tid
-						}
-					};
 					//ui.add(egui::Image::new(my_texture_id, [640.0, 480.0]));
-					ui.image(tex_id, [res.thumbnail_resolution.0 as f32, res.thumbnail_resolution.1 as f32]);
+					//ui.image(tex_id, [res.thumbnail_resolution.0 as f32, res.thumbnail_resolution.1 as f32]);
 					//ui.label(format!("Img: {}", &results[col + row*num_columns].filename));
 					// To handle right click:
 					//ui.button("Test").secondary_clicked()
