@@ -1,5 +1,3 @@
-mod image_grid;
-mod image_table;
 mod search_panel;
 pub mod menutabs;
 pub mod search;
@@ -13,7 +11,6 @@ use eframe::egui::Ui;
 use egui_extras::RetainedImage;
 use tract_onnx::prelude::tract_itertools::Itertools;
 
-pub use image_table::image_table;
 pub use search_panel::search_panel;
 
 use crate::indexed_image;

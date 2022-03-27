@@ -1,7 +1,6 @@
 use crate::MainApp;
 use crate::engine::Engine;
 use crate::ui::{fetch_or_generate_thumbnail, paginate};
-use crate::ui::image_table;
 use eframe::{egui, epi, NativeOptions};
 use eframe::egui::{Context, TextureHandle, Ui};
 use nfd;
@@ -52,6 +51,7 @@ pub fn search_panel(
 									ui.close_menu();
 								}
 								if ui.button("Search for Similar").clicked() {
+									app_state.engine.as_mut().unwrap().query_by_image_hash_from_image(res);
 									ui.close_menu();
 								}
 							});

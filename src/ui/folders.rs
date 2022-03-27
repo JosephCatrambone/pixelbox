@@ -1,6 +1,5 @@
 use crate::engine::Engine;
 use crate::ui::paginate;
-use crate::ui::image_table;
 use eframe::{egui, epi, NativeOptions};
 use nfd;
 use std::collections::HashMap;
