@@ -66,36 +66,5 @@ pub fn search_panel(
 					});
 				});
 			});
-
-		/*
-		let num_results = results.len();
-		let page_size = 20;
-		egui::TopBottomPanel::bottom("bottom_panel")
-			.resizable(true)
-			.min_height(15.0)
-			.show_inside(ui, |ui| {
-				ui.vertical_centered(|ui| {
-					// Pagination:
-					//ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-					paginate(ui, current_page, (num_results / page_size) as u64);
-					//});
-				});
-			});
-		*/
 	}
-
-	//ui.hyperlink("https://github.com/emilk/egui_template");
-	//ui.add(egui::github_link_file_line!("https://github.com/emilk/egui_template/blob/master/", "Direct link to source code."));
-	//egui::warn_if_debug_build(ui);
-	ui.separator();
-
-	//ui.label("The central panel the region left after adding TopPanel's and SidePanel's");
-
-	/*
-	ui.heading("Draw with your mouse to paint:");
-	painting.ui_control(ui);
-	egui::Frame::dark_canvas(ui.style()).show(ui, |ui| {
-		painting.ui_content(ui);
-	});
-	 */
 }
