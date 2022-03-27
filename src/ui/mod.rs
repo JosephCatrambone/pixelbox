@@ -7,6 +7,7 @@ pub mod folders;
 
 use std::collections::HashMap;
 use eframe::egui;
+use eframe::egui::ColorImage;
 use eframe::egui::Ui;
 use egui_extras::RetainedImage;
 use tract_onnx::prelude::tract_itertools::Itertools;
@@ -17,34 +18,30 @@ pub use search_panel::search_panel;
 use crate::indexed_image;
 use crate::indexed_image::IndexedImage;
 
-fn img_to_rgba(indexed_image: &IndexedImage, alpha_fill:u8) -> Vec<u8> {
+fn img_to_egui_colorimage(indexed_image: &IndexedImage, alpha_fill:u8) -> ColorImage {
 	let num_pixels = indexed_image.thumbnail_resolution.0 * indexed_image.thumbnail_resolution.1;
 	let mut new_vec = Vec::with_capacity((num_pixels / 3 * 4) as usize);
 	indexed_image.thumbnail.chunks(3).for_each(|p|{
 		new_vec.extend(p);
 		new_vec.push(alpha_fill);
 	});
-	new_vec
+	ColorImage::from_rgba_unmultiplied(
+		[indexed_image.thumbnail_resolution.0 as usize, indexed_image.thumbnail_resolution.1 as usize],
+		new_vec.as_slice()
+	)
 }
 
 /// Given the thumbnail cache and an image ID, will attempt to load the TextureID from the cache.
 /// On a cache hit, will return the TextureID.
 /// On a cache miss, will take the RGB enumeration and generate a new thumbnail, then return the ID.
-pub fn fetch_or_generate_thumbnail(res: &IndexedImage, thumbnail_cache: &mut HashMap::<i64, egui::TextureId>, ctx: &egui::Context) -> egui::TextureId {
+pub fn fetch_or_generate_thumbnail(res: &IndexedImage, thumbnail_cache: &mut HashMap::<i64, egui::TextureHandle>, ctx: &egui::Context) -> egui::TextureHandle {
 	match thumbnail_cache.get(&res.id) {
 		Some(tid) => tid.clone(),
 		None => {
 			//let tid = thumbnail_to_egui_element(res, frame);
-			let tid = RetainedImage::from_color_image(
-				&res.path,
-				egui::ColorImage::from_rgba_unmultiplied(
-					[res.thumbnail_resolution.0 as usize, res.thumbnail_resolution.1 as usize],
-					&img_to_rgba(res, 255u8)
-				)
-			);
-			let tex_id = tid.texture_id(ctx);
-			thumbnail_cache.insert(res.id, tex_id.clone());
-			tex_id
+			let texture = ctx.load_texture(res.path.clone(), img_to_egui_colorimage(res, 255u8));
+			thumbnail_cache.insert(res.id, texture.clone());
+			texture
 		}
 	}
 }

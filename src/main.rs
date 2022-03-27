@@ -27,7 +27,7 @@ enum AppTab {
 struct MainApp {
 	engine: Option<Engine>,
 	active_tab: AppTab,
-	image_id_to_texture_id: HashMap::<i64, egui::TextureId>,  // For storing the thumbnails loaded.
+	image_id_to_texture_handle: HashMap::<i64, egui::TextureHandle>,  // For storing the thumbnails loaded.
 
 	// Start Tab:
 	
@@ -50,7 +50,7 @@ impl Default for MainApp {
 		MainApp {
 			engine: None,
 			active_tab: AppTab::Start,
-			image_id_to_texture_id: HashMap::new(),
+			image_id_to_texture_handle: HashMap::new(),
 			
 			search_text: "".to_string(),
 			some_value: 1.0f32,
@@ -109,7 +109,7 @@ impl epi::App for MainApp {
 					
 					},
 					AppTab::Search => {
-						ui::search::search_panel(engine, &mut self.image_id_to_texture_id, &mut self.search_text, ctx, ui);
+						ui::search::search_panel(engine, &mut self.image_id_to_texture_handle, &mut self.search_text, ui);
 					},
 					AppTab::Folders => {
 						ui::folders::folder_panel(engine, ctx, ui);
