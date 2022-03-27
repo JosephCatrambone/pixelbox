@@ -12,7 +12,7 @@ from glob import glob
 from PIL import Image
 from tqdm import tqdm
 
-Configuration = namedtuple("Configuration", "ENCODER_INPUT_WIDTH ENCODER_INPUT_HEIGHT LATENT_SPACE_SIZE LEARNING_RATE EPOCHS BATCH_SIZE DATA_PATH ARCHITECTURE NOTES")
+Configuration = namedtuple("Configuration", "ENCODER_INPUT_WIDTH ENCODER_INPUT_HEIGHT LATENT_SPACE_SIZE LEARNING_RATE EPOCHS BATCH_SIZE DATA_PATH ARCHITECTURE NOTES TRAINING_LOSSES")
 
 DEVICE = torch.device("cuda")
 #device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -111,6 +111,7 @@ def train(model, config: Type[Configuration]):
 	dataset_loader = torch.utils.data.DataLoader(dataset, batch_size=config.BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True)
 
 	# Training loop:
+	epoch_losses = list()
 	for epoch_idx in range(config.EPOCHS):
 		dataloop = tqdm(dataset_loader)
 		total_epoch_loss = 0.0
@@ -136,8 +137,10 @@ def train(model, config: Type[Configuration]):
 			total_epoch_loss += loss.item()
 
 		print(f"Epoch [{epoch_idx}/{config.EPOCHS}] loss: {total_epoch_loss}")
+		epoch_losses.append(total_epoch_loss)
 		torch.save(model.state_dict(), f"checkpoints/checkpoint_{epoch_idx}")
 	torch.save(model, "result_model.pt")
+	return epoch_losses
 
 
 def finalize(encoder, config):
@@ -158,21 +161,23 @@ def main():
 		ENCODER_INPUT_HEIGHT=255,
 		LATENT_SPACE_SIZE=latent_space,
 		LEARNING_RATE=1e-6,
-		EPOCHS=100,
+		EPOCHS=300,
 		BATCH_SIZE=32,
 		DATA_PATH="E:\\Pictures",
 		ARCHITECTURE=str(model),
-		NOTES="""The smaller model is either garbage or insufficiently trained.  Losses were near zero at the end, so 
+		NOTES="""Same as before, but more epochs.  Prev note: The smaller model is either garbage or insufficiently trained.  Losses were near zero at the end, so 
 		I have to speculate that it's just not big enough to capture the kinds of data in which we're interested.  I'm
 		going to remove the horizontal and vertical random flips because I think it might be hurting the approximate
-		hashing.  Also using -1, 1 for cosine distance again."""
+		hashing.  Also using -1, 1 for cosine distance again.""",
+		TRAINING_LOSSES=[],
 	)
 	log_timestamp = datetime.strftime(datetime.now(), "%Y%m%d%H%M%S")
+	config.TRAINING_LOSSES.extend(
+		train(model, config)
+	)
+	finalize(model, config)
 	with open(f"./experiment_log_{log_timestamp}.txt", 'wt') as fout:
 		json.dump(config._asdict(), fout)
-	train(model, config)
-	finalize(model, config)
-
 
 if __name__ == "__main__":
 	main()
