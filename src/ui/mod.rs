@@ -1,6 +1,7 @@
 mod image_grid;
 mod image_table;
 mod search_panel;
+pub mod menutabs;
 pub mod search;
 pub mod start;
 pub mod folders;
@@ -38,7 +39,6 @@ pub fn fetch_or_generate_thumbnail(res: &IndexedImage, thumbnail_cache: &mut Has
 	match thumbnail_cache.get(&res.id) {
 		Some(tid) => tid.clone(),
 		None => {
-			//let tid = thumbnail_to_egui_element(res, frame);
 			let texture = ctx.load_texture(res.path.clone(), img_to_egui_colorimage(res, 255u8));
 			thumbnail_cache.insert(res.id, texture.clone());
 			texture

@@ -15,7 +15,7 @@ use std::time::Duration;
 
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-enum AppTab {
+pub enum AppTab {
 	Start,
 	Search,
 	View,
@@ -24,7 +24,7 @@ enum AppTab {
 }
 
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
-struct MainApp {
+pub struct MainApp {
 	engine: Option<Engine>,
 	active_tab: AppTab,
 	image_id_to_texture_handle: HashMap::<i64, egui::TextureHandle>,  // For storing the thumbnails loaded.
@@ -55,51 +55,18 @@ impl Default for MainApp {
 			search_text: "".to_string(),
 			some_value: 1.0f32,
 			current_page: 0u64,
-			
 		}
 	}
 }
 
 impl epi::App for MainApp {
 	fn update(&mut self, ctx: &egui::Context, frame: &epi::Frame) {
+		// Enforce dark mode.
 		ctx.set_visuals(egui::Visuals::dark());
 
+		// Display UI tabs:
 		egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-			// Main Menu
-			egui::menu::bar(ui, |ui| {
-				ui.menu_button("File", |ui| {
-					if ui.button("New DB").clicked() {
-						let result = nfd::open_save_dialog(Some("db"), None).unwrap();
-						match result {
-							nfd::Response::Okay(file_path) => {
-								// TODO: Shutdown old engine.
-								self.engine = Some(Engine::new(Path::new(&file_path)));
-								self.active_tab = AppTab::Folders;  // Transition right away to tracking new folders.
-							},
-							nfd::Response::OkayMultiple(files) => (),
-							nfd::Response::Cancel => (),
-						}
-						ui.close_menu();
-					}
-					if ui.button("Open DB").clicked() {
-						let result = nfd::open_file_dialog(Some("db"), None).unwrap();
-						match result {
-							nfd::Response::Okay(file_path) => self.engine = Some(Engine::open(Path::new(&file_path))),
-							nfd::Response::OkayMultiple(files) => (),
-							nfd::Response::Cancel => (),
-						}
-						ui.close_menu();
-					}
-					if ui.button("Quit").clicked() {
-						frame.quit();
-					}
-				});
-				
-				ui.selectable_value(&mut self.active_tab, AppTab::Search, "Search");
-				ui.selectable_value(&mut self.active_tab, AppTab::View, "View");
-				ui.selectable_value(&mut self.active_tab, AppTab::Folders, "Folders");
-				ui.selectable_value(&mut self.active_tab, AppTab::Settings, "Settings");
-			});
+			ui::menutabs::navigation(self, ui);
 		});
 
 		egui::CentralPanel::default().show(ctx, |ui|{
@@ -109,7 +76,7 @@ impl epi::App for MainApp {
 					
 					},
 					AppTab::Search => {
-						ui::search::search_panel(engine, &mut self.image_id_to_texture_handle, &mut self.search_text, ui);
+						ui::search::search_panel(self, ui);
 					},
 					AppTab::Folders => {
 						ui::folders::folder_panel(engine, ctx, ui);
@@ -130,6 +97,10 @@ impl epi::App for MainApp {
 
 fn main() {
 	let app = MainApp::default();
-	eframe::run_native(Box::new(app), NativeOptions::default());
+	let options = eframe::NativeOptions {
+		drag_and_drop_support: true,
+		..Default::default()
+	};
+	eframe::run_native(Box::new(app), options);
 }
 
