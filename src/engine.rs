@@ -58,8 +58,8 @@ pub struct Engine {
 	pool: Pool<SqliteConnectionManager>,
 
 	// Crawling and indexing:
-	files_pending_processing: Option<crossbeam::channel::Receiver<PathBuf>>, // What images remain to be processed.
-	files_pending_storage: Option<crossbeam::channel::Receiver<IndexedImage>>, // What images have been loaded but are not stored.
+	files_crawled: Option<crossbeam::channel::Receiver<PathBuf>>,
+	files_processed: Option<crossbeam::channel::Receiver<IndexedImage>>, // What images have been loaded but are not stored.
 	files_completed: Option<crossbeam::channel::Receiver<String>>,
 	files_failed: Option<crossbeam::channel::Receiver<String>>,
 	last_indexed: Vec<String>, // A cache of the last n indexed items.
@@ -68,6 +68,13 @@ pub struct Engine {
 	// Searching and filtering.
 	max_distance_from_query: f64,
 	cached_search_results: Option<Vec<IndexedImage>>,
+}
+
+// Public for sharing across modules, not for internal use.
+pub struct IndexingStatus {
+	pub num_unread: usize,
+	pub num_unprocessed: usize,
+	pub num_completed: usize,
 }
 
 impl Engine {
@@ -101,8 +108,8 @@ impl Engine {
 
 		Engine {
 			pool,
-			files_pending_processing: None,
-			files_pending_storage: None,
+			files_crawled: None,
+			files_processed: None,
 			files_completed: None,
 			files_failed: None,
 			last_indexed: vec![],
@@ -114,10 +121,18 @@ impl Engine {
 	}
 
 	pub fn is_indexing_active(&self) -> bool {
-		match (&self.files_pending_processing, &self.files_pending_storage) {
+		match (&self.files_crawled, &self.files_processed) {
 			(Some(f_rx), _) => f_rx.len() > 0,
 			(_, Some(img_rx)) => img_rx.len() > 0,
 			(None, None) => false
+		}
+	}
+
+	pub fn get_indexing_status(&self) -> IndexingStatus {
+		IndexingStatus {
+			num_unread: if let Some(fname_rx) = &self.files_crawled { fname_rx.len() } else { 0 },
+			num_unprocessed: if let Some(img_rx) = &self.files_processed { img_rx.len() } else { 0 },
+			num_completed: if let Some(cmp) = &self.files_completed { cmp.len() } else { 0 },
 		}
 	}
 
@@ -158,8 +173,8 @@ impl Engine {
 		// img_rx / files_pending_storage
 		let pool = self.pool.clone();
 		let (file_rx, img_rx) = crawler::crawl_globs_async(all_globs, PARALLEL_FILE_PROCESSORS);
-		self.files_pending_processing = Some(file_rx.clone());
-		self.files_pending_storage = Some(img_rx.clone());
+		self.files_crawled = Some(file_rx.clone());
+		self.files_processed = Some(img_rx.clone());
 		std::thread::spawn(move || {
 			let conn = pool.get().unwrap();
 			let mut stmt = conn.prepare("SELECT 1 FROM images WHERE path = ?").unwrap();

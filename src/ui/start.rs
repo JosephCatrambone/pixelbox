@@ -3,8 +3,6 @@ use eframe::{egui, epi, NativeOptions};
 use crate::engine::Engine;
 
 pub fn start_panel(
-		ctx: &egui::CtxRef,
-		frame: &epi::Frame,
 		ui: &mut egui::Ui
 ) {
 	/*

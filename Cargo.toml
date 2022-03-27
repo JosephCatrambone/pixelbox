@@ -8,7 +8,8 @@ edition = "2021"
 
 [dependencies]
 crossbeam = "0.8.1"
-eframe = "0.16.0" # Gives us egui, epi and web+native backends
+eframe = "0.17.0" # Gives us egui, epi and web+native backends
+egui_extras = "0.17.0"
 glob = "0.3.0"
 image = "^0.24"
 #kamadak-exif = "0.5.4"

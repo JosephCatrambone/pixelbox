@@ -5,36 +5,45 @@ pub mod search;
 pub mod start;
 pub mod folders;
 
-use eframe::{egui::{self, Ui}, epi};
+use std::collections::HashMap;
+use eframe::egui;
+use eframe::egui::ColorImage;
+use eframe::egui::Ui;
+use egui_extras::RetainedImage;
+use tract_onnx::prelude::tract_itertools::Itertools;
 
-pub use image_grid::image_grid;
 pub use image_table::image_table;
 pub use search_panel::search_panel;
 
 use crate::indexed_image;
 use crate::indexed_image::IndexedImage;
 
-fn thumbnail_to_egui_element(img:&indexed_image::IndexedImage, ctx: &egui::Context, frame: &epi::Frame) -> egui::TextureId {
-	let mut pixels = Vec::<u8>::with_capacity(img.thumbnail.len() + img.thumbnail.len()/3);
-	for i in (0..img.thumbnail.len()).step_by(3) {
-		pixels.push(img.thumbnail[i]);
-		pixels.push(img.thumbnail[i+1]);
-		pixels.push(img.thumbnail[i+2]);
-		pixels.push(255u8);
-	}
-	if (img.thumbnail_resolution.0*img.thumbnail_resolution.1*4) as u32 != pixels.len() as u32 {
-		eprintln!("Resolution/byte mismatch.");
-		dbg!("{:?} {:?}", img.thumbnail_resolution, pixels.len());
-		eprintln!("Corrupt thumbnail: fixme and/or make a recovery op, like empty-fill.");  // TODO
-	}
-	//let texture_id = tex_allocator.alloc_srgba_premultiplied((img.thumbnail_resolution.0 as usize, img.thumbnail_resolution.1 as usize), pixels.as_slice());
-	let tex = epi::Image::from_rgba_unmultiplied([img.thumbnail_resolution.0 as usize, img.thumbnail_resolution.1 as usize], &pixels);
-	let texture_id = frame.alloc_texture(tex);
-	texture_id
+fn img_to_egui_colorimage(indexed_image: &IndexedImage, alpha_fill:u8) -> ColorImage {
+	let num_pixels = indexed_image.thumbnail_resolution.0 * indexed_image.thumbnail_resolution.1;
+	let mut new_vec = Vec::with_capacity((num_pixels / 3 * 4) as usize);
+	indexed_image.thumbnail.chunks(3).for_each(|p|{
+		new_vec.extend(p);
+		new_vec.push(alpha_fill);
+	});
+	ColorImage::from_rgba_unmultiplied(
+		[indexed_image.thumbnail_resolution.0 as usize, indexed_image.thumbnail_resolution.1 as usize],
+		new_vec.as_slice()
+	)
 }
 
-fn free_thumbnail(img:egui::TextureId, frame: &mut epi::Frame) {
-	frame.free_texture(img);
+/// Given the thumbnail cache and an image ID, will attempt to load the TextureID from the cache.
+/// On a cache hit, will return the TextureID.
+/// On a cache miss, will take the RGB enumeration and generate a new thumbnail, then return the ID.
+pub fn fetch_or_generate_thumbnail(res: &IndexedImage, thumbnail_cache: &mut HashMap::<i64, egui::TextureHandle>, ctx: &egui::Context) -> egui::TextureHandle {
+	match thumbnail_cache.get(&res.id) {
+		Some(tid) => tid.clone(),
+		None => {
+			//let tid = thumbnail_to_egui_element(res, frame);
+			let texture = ctx.load_texture(res.path.clone(), img_to_egui_colorimage(res, 255u8));
+			thumbnail_cache.insert(res.id, texture.clone());
+			texture
+		}
+	}
 }
 
 pub fn paginate(ui: &mut Ui, current_page: &mut u64, max_page: u64) {
@@ -58,15 +67,6 @@ pub fn paginate(ui: &mut Ui, current_page: &mut u64, max_page: u64) {
 		}
 	});
 	//ui.add(egui::Hyperlink::new("https://github.com/emilk/egui/").text("powered by egui"),);
-}
-
-pub fn on_right_click(ui: &mut Ui, ctx:&egui::CtxRef, img: &IndexedImage) {
-	egui::Window::new(&img.filename).show(ctx, |ui| {
-		ui.label("Windows can be moved by dragging them.");
-		ui.label("They are automatically sized based on contents.");
-		ui.label("You can turn on resizing and scrolling if you like.");
-		ui.label("You would normally chose either panels OR windows.");
-	});
 }
 
 /// Example code for painting on a canvas with your mouse
