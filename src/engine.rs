@@ -278,11 +278,18 @@ impl Engine {
 	}
 
 	pub fn query_by_image_hash_from_file(&mut self, img:&Path) {
-		self.cached_search_results = None;
+		// No clearing cached results here because we do it in the next method.
 
 		let debug_start_load_image = Instant::now();
 		let indexed_image = IndexedImage::from_file_path(img).unwrap();
 		let debug_end_load_image = Instant::now();
+		eprintln!("Time to compute image hash: {:?}", debug_end_load_image-debug_start_load_image);
+
+		self.query_by_image_hash_from_image(&indexed_image);
+	}
+
+	pub fn query_by_image_hash_from_image(&mut self, indexed_image:&IndexedImage) {
+		self.cached_search_results = None;
 
 		let debug_start_db_query = Instant::now();
 		let conn = self.pool.get().unwrap();
@@ -300,13 +307,16 @@ impl Engine {
 		}).unwrap();
 
 		self.cached_search_results = Some(img_cursor.map(|item|{
-			item.unwrap()
+			match item {
+				Err(problem) => panic!("Problem unwrapping result from database: {:?}", problem),
+				Ok(res) => res
+			}
 		}).collect());
 		let debug_end_db_query = Instant::now();
 		
 		let result_count = self.cached_search_results.as_ref().unwrap().len();
 
-		eprintln!("Time to compute image hash: {:?}.  Time to search DB: {:?}  Results: {:?}", debug_end_load_image-debug_start_load_image, debug_end_db_query-debug_start_db_query, result_count);
+		eprintln!("Time to search DB: {:?}  Results: {:?}", debug_end_db_query-debug_start_db_query, result_count);
 	}
 
 	pub fn get_query_results(&self) -> Option<Vec<IndexedImage>> {
