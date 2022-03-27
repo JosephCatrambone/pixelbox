@@ -2,7 +2,7 @@ use crate::engine::Engine;
 use crate::ui::paginate;
 use crate::ui::image_table;
 use eframe::{egui, epi, NativeOptions};
-use eframe::egui::{Context, TextureId, Ui};
+use eframe::egui::{Context, TextureHandle, Ui};
 use nfd;
 use std::collections::HashMap;
 use std::path::Path;
@@ -10,9 +10,8 @@ use std::time::Duration;
 
 pub fn search_panel(
 	engine: &mut Engine,
-	image_id_to_texture_id: &mut HashMap::<i64, TextureId>,
+	image_id_to_texture_handle: &mut HashMap::<i64, TextureHandle>,
 	search_text: &mut String,
-	ctx: &Context,
 	ui: &mut egui::Ui
 ) {
 	ui.horizontal(|ui|{
@@ -37,7 +36,7 @@ pub fn search_panel(
 		egui::ScrollArea::vertical()
 			.auto_shrink([false, false])
 			.show(ui, |ui| {
-				image_table(ui, ctx, results, image_id_to_texture_id);
+				image_table(ui, results, image_id_to_texture_handle);
 			});
 
 		/*
