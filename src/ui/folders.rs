@@ -9,7 +9,7 @@ use std::time::Duration;
 
 pub fn folder_panel(
 		engine: &mut Engine,
-		ctx: &egui::CtxRef,
+		ctx: &egui::Context,
 		ui: &mut egui::Ui
 ) {
 	let mut new_tracked_folder: Option<String> = None;
