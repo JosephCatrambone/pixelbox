@@ -48,7 +48,7 @@ fn indexed_image_from_row(row: &Row) -> Result<IndexedImage> {
 		created: Instant::now(), //row.get(8)?
 		indexed: Instant::now(), //row.get(9)?
 		phash: None,
-		visual_hash: None,
+		visual_hash: row.get(8)?,
 		distance_from_query: None,
 	})
 }
@@ -263,8 +263,9 @@ impl Engine {
 
 		let conn = self.pool.get().unwrap();
 		let mut stmt = conn.prepare(r#"
-			SELECT images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height
+			SELECT images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height, image_hashes.hash
 			FROM images
+			JOIN semantic_hashes image_hashes ON images.id = image_hashes.image_id
 			WHERE images.filename LIKE ?1
 			LIMIT 100
 		"#).unwrap();
@@ -294,7 +295,7 @@ impl Engine {
 		let debug_start_db_query = Instant::now();
 		let conn = self.pool.get().unwrap();
 		let mut stmt = conn.prepare(r#"
-			SELECT images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height, cosine_distance(?, image_hashes.hash) AS dist
+			SELECT images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height, image_hashes.hash, cosine_distance(?, image_hashes.hash) AS dist
 			FROM semantic_hashes image_hashes
 			JOIN images images ON images.id = image_hashes.image_id
 			WHERE dist < ?
@@ -302,7 +303,7 @@ impl Engine {
 			LIMIT 100"#).unwrap();
 		let img_cursor = stmt.query_map(params![indexed_image.visual_hash, self.max_distance_from_query], |row|{
 			let mut img = indexed_image_from_row(row).expect("Unable to unwrap result from database");
-			img.distance_from_query = Some(row.get(8)?);
+			img.distance_from_query = Some(row.get(9)?);
 			Ok(img)
 		}).unwrap();
 
