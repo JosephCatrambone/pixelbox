@@ -31,7 +31,7 @@ lazy_static! {
 		tract_onnx::onnx()
 		// load the model
 		.model_for_path(STYLE_ENCODER_MODEL_PATH)
-		.expect(format!("Failed to load model from {}", STYLE_ENCODER_MODEL_PATH))
+		.expect(&format!("Failed to load model from {}", STYLE_ENCODER_MODEL_PATH))
 		// specify input type and shape
 		.with_input_fact(0, InferenceFact::dt_shape(f32::datum_type(), tvec!(1, 3, MODEL_INPUT_HEIGHT as i64, MODEL_INPUT_WIDTH as i64)))
 		.expect("Failed to specify input shape.")
