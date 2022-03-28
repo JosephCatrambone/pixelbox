@@ -37,6 +37,7 @@ pub struct MainApp {
 	current_page: u64,
 
 	// View Tab:
+	selected_image: Option<IndexedImage>, // Should we move this into the enum?
 
 	// Explore Tab:
 
@@ -55,6 +56,8 @@ impl Default for MainApp {
 			search_text: "".to_string(),
 			some_value: 1.0f32,
 			current_page: 0u64,
+
+			selected_image: None,
 		}
 	}
 }
