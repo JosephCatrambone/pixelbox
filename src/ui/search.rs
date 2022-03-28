@@ -3,7 +3,7 @@ use crate::{AppTab, MainApp};
 use crate::ui::{fetch_or_generate_thumbnail, paginate};
 use eframe::{egui, epi, NativeOptions};
 use eframe::egui::{Context, DroppedFile, TextureHandle, Ui};
-use nfd;
+use rfd;
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
@@ -20,10 +20,8 @@ pub fn search_panel(
 	ui.horizontal(|ui|{
 		// Search by image _buttons_.
 		if ui.button("Search by Image").clicked() {
-			let result = nfd::open_file_dialog(None, None).unwrap();
-			match result {
-				nfd::Response::Okay(file_path) => app_state.engine.as_mut().unwrap().query_by_image_hash_from_file(Path::new(&file_path)),
-				_ => (),
+			if let Some(file_path) = rfd::FileDialog::new().pick_file() {
+				app_state.engine.as_mut().unwrap().query_by_image_hash_from_file(Path::new(&file_path))
 			}
 		}
 
