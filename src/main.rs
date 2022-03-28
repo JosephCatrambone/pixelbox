@@ -8,7 +8,6 @@ mod ui;
 use crate::indexed_image::{IndexedImage, THUMBNAIL_SIZE};
 use eframe::{egui, epi, NativeOptions};
 use engine::Engine;
-use nfd;
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;

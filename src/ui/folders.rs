@@ -1,9 +1,10 @@
 use crate::engine::Engine;
 use crate::ui::paginate;
 use eframe::{egui, epi, NativeOptions};
-use nfd;
+use rfd;
 use std::collections::HashMap;
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 pub fn folder_panel(
@@ -11,7 +12,7 @@ pub fn folder_panel(
 		ctx: &egui::Context,
 		ui: &mut egui::Ui
 ) {
-	let mut new_tracked_folder: Option<String> = None;
+	let mut new_tracked_folder: Option<PathBuf> = None;
 	let mut to_remove:Option<String> = None;
 	
 	//ui.heading("Watched Directories");
@@ -22,13 +23,7 @@ pub fn folder_panel(
 		
 		// New folder to add...
 		if ui.button("Add Directory").clicked() {
-			let result = nfd::open_pick_folder(None).unwrap();
-			match result {
-				nfd::Response::Okay(file_path) => {
-					new_tracked_folder = Some(file_path);
-				},
-				_ => ()
-			}
+			new_tracked_folder = rfd::FileDialog::new().pick_folder();
 		}
 		
 		// Old folder to remove.
@@ -56,7 +51,7 @@ pub fn folder_panel(
 				});
 			});
 	} else if let Some(new_folder) = new_tracked_folder {
-		engine.add_tracked_folder(new_folder);
+		engine.add_tracked_folder(fs::canonicalize(new_folder).into());
 	} else if let Some(dir_to_remove) = to_remove {
 		engine.remove_tracked_folder(dir_to_remove);
 	} else {

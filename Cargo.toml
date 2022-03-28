@@ -14,11 +14,11 @@ glob = "0.3.0"
 image = "^0.24"
 #kamadak-exif = "0.5.4"
 lazy_static = "1.4.0"
-nfd = "0.0.4"  # For Open-File dialogs.
 open = "2.0.2"
 r2d2 = "0.8.9"
 r2d2_sqlite = "0.20.0"
 rayon = "1.5.0"
+rfd = "^0.8"
 rusqlite = { version="^0.27", features=["bundled", "time", "functions"] } # bundled uses bundled version for Windows.
 serde = { version = "*", features = ["derive"], optional = true }
 tract-onnx = "0.15.8"
