@@ -1,8 +1,8 @@
-use crate::MainApp;
-use crate::engine::Engine;
+use crate::{AppTab, MainApp};
+//use crate::engine::Engine;
 use crate::ui::{fetch_or_generate_thumbnail, paginate};
 use eframe::{egui, epi, NativeOptions};
-use eframe::egui::{Context, TextureHandle, Ui};
+use eframe::egui::{Context, DroppedFile, TextureHandle, Ui};
 use nfd;
 use std::collections::HashMap;
 use std::path::Path;
@@ -18,12 +18,18 @@ pub fn search_panel(
 	}
 
 	ui.horizontal(|ui|{
+		// Search by image _buttons_.
 		if ui.button("Search by Image").clicked() {
 			let result = nfd::open_file_dialog(None, None).unwrap();
 			match result {
 				nfd::Response::Okay(file_path) => app_state.engine.as_mut().unwrap().query_by_image_hash_from_file(Path::new(&file_path)),
 				_ => (),
 			}
+		}
+
+		// Search by image drag+drop support.
+		if let Some(images) = detect_files_being_dropped(ui.ctx()) {
+			app_state.engine.as_mut().unwrap().query_by_image_hash_from_file(images.first().unwrap().path.as_ref().unwrap())
 		}
 		
 		// Universal Search
@@ -50,6 +56,11 @@ pub fn search_panel(
 									open::that(&res.path);
 									ui.close_menu();
 								}
+								if ui.button("Open in View Tab").clicked() {
+									//let _ = std::process::Command::new("open").arg(&res.path).output();
+									app_state.active_tab = AppTab::View;
+									ui.close_menu();
+								}
 								if ui.button("Search for Similar").clicked() {
 									app_state.engine.as_mut().unwrap().query_by_image_hash_from_image(res);
 									ui.close_menu();
@@ -67,4 +78,42 @@ pub fn search_panel(
 				});
 			});
 	}
+}
+
+// Flagrantly stolen from the drag-and-drop documentation:
+// https://github.com/emilk/egui/blob/master/eframe/examples/file_dialog.rs#L67
+fn detect_files_being_dropped(ctx: &egui::Context) -> Option<Vec<DroppedFile>> {
+	// Preview hovering files:
+	if !ctx.input().raw.hovered_files.is_empty() {
+		let mut text = "Dropping files:\n".to_owned();
+		for file in &ctx.input().raw.hovered_files {
+			if let Some(path) = &file.path {
+				text += &format!("\n{}", path.display());
+			} else if !file.mime.is_empty() {
+				text += &format!("\n{}", file.mime);
+			} else {
+				text += "\n???";
+			}
+		}
+
+		let painter =
+			ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("file_drop_target")));
+
+		let screen_rect = ctx.input().screen_rect();
+		painter.rect_filled(screen_rect, 0.0, egui::Color32::from_black_alpha(192));
+		painter.text(
+			screen_rect.center(),
+			egui::Align2::CENTER_CENTER,
+			text,
+			egui::TextStyle::Heading.resolve(&ctx.style()),
+			egui::Color32::WHITE,
+		);
+	}
+
+	// Collect dropped files:
+	if !ctx.input().raw.dropped_files.is_empty() {
+		return Some(ctx.input().raw.dropped_files.clone());
+	}
+
+	None
 }
