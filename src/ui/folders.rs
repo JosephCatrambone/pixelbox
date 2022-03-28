@@ -3,7 +3,6 @@ use crate::ui::paginate;
 use eframe::{egui, epi, NativeOptions};
 use rfd;
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -12,7 +11,7 @@ pub fn folder_panel(
 		ctx: &egui::Context,
 		ui: &mut egui::Ui
 ) {
-	let mut new_tracked_folder: Option<PathBuf> = None;
+	let mut new_tracked_folder: Option<String> = None;
 	let mut to_remove:Option<String> = None;
 	
 	//ui.heading("Watched Directories");
@@ -23,7 +22,10 @@ pub fn folder_panel(
 		
 		// New folder to add...
 		if ui.button("Add Directory").clicked() {
-			new_tracked_folder = rfd::FileDialog::new().pick_folder();
+			if let Some(new_path) = rfd::FileDialog::new().pick_folder() {
+				//fs::canonicalize() should get us from a relative path to this, but I've not had problems so far without it and it adds a funky \\X?\ to Windows paths.
+				new_tracked_folder = Some(new_path.as_path().to_str().unwrap().parse().unwrap());
+			}
 		}
 		
 		// Old folder to remove.
@@ -51,7 +53,7 @@ pub fn folder_panel(
 				});
 			});
 	} else if let Some(new_folder) = new_tracked_folder {
-		engine.add_tracked_folder(fs::canonicalize(new_folder).into());
+		engine.add_tracked_folder(new_folder);
 	} else if let Some(dir_to_remove) = to_remove {
 		engine.remove_tracked_folder(dir_to_remove);
 	} else {
