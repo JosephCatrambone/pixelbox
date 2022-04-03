@@ -63,17 +63,11 @@ pub struct Engine {
 	files_failed: Option<channel::Receiver<String>>,
 	last_indexed: Vec<String>, // A cache of the last n indexed items.
 	watched_directories_cache: Option<Vec<String>>, // Contains a list of the globs that we monitor.
+	cached_index_size: Option<usize>, // Number of indexed images.
 
 	// Searching and filtering.
 	max_distance_from_query: f64,
 	cached_search_results: Option<Vec<IndexedImage>>,
-}
-
-// Public for sharing across modules, not for internal use.
-pub struct IndexingStatus {
-	pub num_unread: usize,
-	pub num_unprocessed: usize,
-	pub num_completed: usize,
 }
 
 impl Engine {
@@ -110,6 +104,7 @@ impl Engine {
 			files_failed: None,
 			last_indexed: vec![],
 			watched_directories_cache: None,
+			cached_index_size: None,
 			
 			max_distance_from_query: DEFAULT_MAX_QUERY_DISTANCE,
 			cached_search_results: None,
@@ -124,12 +119,29 @@ impl Engine {
 		}
 	}
 
-	pub fn get_indexing_status(&self) -> IndexingStatus {
-		IndexingStatus {
-			num_unread: if let Some(fname_rx) = &self.files_crawled { fname_rx.len() } else { 0 },
-			num_unprocessed: if let Some(img_rx) = &self.files_processed { img_rx.len() } else { 0 },
-			num_completed: if let Some(cmp) = &self.files_completed { cmp.len() } else { 0 },
+	pub fn get_indexing_progress(&self) -> f32 {
+		let num_unread = if let Some(fname_rx) = &self.files_crawled { fname_rx.len() } else { 0 };
+		let num_unprocessed = if let Some(img_rx) = &self.files_processed { img_rx.len() } else { 0 };
+		let num_completed = if let Some(cmp) = &self.files_completed { cmp.len() } else { 0 };
+		let num_indexed = self.try_get_num_indexed_images().unwrap_or(0);
+		(num_indexed as f32) / 1.0f32.max((num_indexed + num_unread + num_unprocessed + num_completed) as f32)
+	}
+
+	pub fn try_get_num_indexed_images(&self) -> Option<usize> {
+		self.cached_index_size
+	}
+
+	/// Perform a count of the number of indexed images and cache the value.
+	pub fn get_num_indexed_images(&mut self) -> usize {
+		let conn = self.connection.lock();
+		let mut stmt = conn.prepare("SELECT COUNT(*) FROM images").unwrap();
+		let num_rows_iter = stmt.query_map([], |row|{
+			Ok(row.get(0)?)
+		}).expect("Unable to count rows in image database");
+		for nr in num_rows_iter {
+			self.cached_index_size = Some(nr.unwrap());
 		}
+		self.cached_index_size.unwrap()
 	}
 
 	pub fn get_last_indexed(&mut self) -> &Vec<String> {
@@ -433,7 +445,6 @@ fn make_cosine_distance_db_function(db: &mut Connection) -> Result<()> {
 		}
 	)
 }
-
 
 fn make_byte_distance_db_function(db: &mut Connection) -> Result<()> {
 	db.create_scalar_function(

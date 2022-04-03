@@ -11,6 +11,7 @@ pub fn folder_panel(
 		ctx: &egui::Context,
 		ui: &mut egui::Ui
 ) {
+	// We are kinda' assuming that these things can't happen in the same frame.
 	let mut new_tracked_folder: Option<String> = None;
 	let mut to_remove:Option<String> = None;
 	
@@ -39,31 +40,33 @@ pub fn folder_panel(
 		}
 	});
 
-	// If we happen to be reindexing, show the most recent items and the progress so far.
-	if engine.is_indexing_active() {
-		egui::TopBottomPanel::bottom("bottom_panel")
-			.resizable(true)
-			.min_height(0.0)
-			.show(ctx, |ui| {
-				ui.label("Reindexing.");
-				ui.vertical_centered(|ui| {
-					for file in engine.get_last_indexed() {
-						ui.label(file);
-					}
-				});
-			});
-	} else if let Some(new_folder) = new_tracked_folder {
-		engine.add_tracked_folder(new_folder);
-	} else if let Some(dir_to_remove) = to_remove {
-		engine.remove_tracked_folder(dir_to_remove);
-	} else {
-		egui::TopBottomPanel::bottom("bottom_panel")
-			.resizable(true)
-			.min_height(0.0)
-			.show(ctx, |ui| {
+	// Status Areas:
+	egui::TopBottomPanel::bottom("bottom_panel")
+		.resizable(true)
+		.min_height(0.0)
+		.show(ctx, |ui| {
+			// Show Reindexing Button
+			if engine.is_indexing_active() {
+				engine.get_num_indexed_images();
+				ui.label(format!("Reindexing.  Progress: {}%", 100.0*engine.get_indexing_progress()));
+				//ui.vertical_centered(|ui| {});
+				for file in engine.get_last_indexed() {
+					ui.label(file);
+				}
+			} else {
 				if ui.button("Reindex").clicked() {
 					engine.start_reindexing();
 				}
-			});
+			}
+		});
+
+	if !engine.is_indexing_active() {
+		if let Some(new_folder) = new_tracked_folder {
+			// New Folder Addition
+			engine.add_tracked_folder(new_folder);
+		} else if let Some(dir_to_remove) = to_remove {
+			// Folder Removal
+			engine.remove_tracked_folder(dir_to_remove);
+		}
 	}
 }
