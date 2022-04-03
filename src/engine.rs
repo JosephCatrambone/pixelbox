@@ -5,13 +5,12 @@
 /// Engine manages the spidering, indexing, and keeping track of images.
 ///
 
-use image::{ImageError, DynamicImage};
-use r2d2::{Pool, PooledConnection};
-use r2d2_sqlite::SqliteConnectionManager;
-use rayon::prelude::*;
-use rusqlite::{params, Connection, Error, Result, NO_PARAMS, Row, ToSql};
+use crossbeam::channel;
+//use rayon::prelude::*;
+use rusqlite::{params, Connection, Error, Result, Row, ToSql, OpenFlags};
 use rusqlite::functions::FunctionFlags;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::crawler;
@@ -53,15 +52,15 @@ fn indexed_image_from_row(row: &Row) -> Result<IndexedImage> {
 	})
 }
 
-#[derive(Clone)]
 pub struct Engine {
-	pool: Pool<SqliteConnectionManager>,
+	read_connection: Arc<Connection>,
+	write_connection: Arc<Mutex<Connection>>,
 
 	// Crawling and indexing:
-	files_crawled: Option<crossbeam::channel::Receiver<PathBuf>>,
-	files_processed: Option<crossbeam::channel::Receiver<IndexedImage>>, // What images have been loaded but are not stored.
-	files_completed: Option<crossbeam::channel::Receiver<String>>,
-	files_failed: Option<crossbeam::channel::Receiver<String>>,
+	files_crawled: Option<channel::Receiver<PathBuf>>,
+	files_processed: Option<channel::Receiver<IndexedImage>>, // What images have been loaded but are not stored.
+	files_completed: Option<channel::Receiver<String>>,
+	files_failed: Option<channel::Receiver<String>>,
 	last_indexed: Vec<String>, // A cache of the last n indexed items.
 	watched_directories_cache: Option<Vec<String>>, // Contains a list of the globs that we monitor.
 
@@ -83,7 +82,7 @@ impl Engine {
 
 		// Initialize our image DB and our indices.
 		conn.execute(IMAGE_SCHEMA_V1, params![]).unwrap();
-		conn.execute(WATCHED_DIRECTORIES_SCHEMA_V1, NO_PARAMS).unwrap();
+		conn.execute(WATCHED_DIRECTORIES_SCHEMA_V1, []).unwrap();
 
 		// phashes and semantic hashes should be identical instructure so we can swap them out.
 		// Can't use prepared statements for CREATE TABLE, so we have to substitute $tablename$.
@@ -97,17 +96,16 @@ impl Engine {
 	}
 
 	pub fn open(filename:&Path) -> Self {
-		let manager = SqliteConnectionManager::file(filename);
-		let pool = r2d2::Pool::new(manager).unwrap();
+		let mut read_connection = Connection::open_with_flags(filename, OpenFlags::SQLITE_OPEN_READ_ONLY).expect("Unable to open SQLite DB for reading.");
+		let mut write_connection = Connection::open(filename).expect("Unable to open filename.");
 
-		let mut conn = pool.get().unwrap();
-		make_hamming_distance_db_function(&conn);
-		make_byte_distance_db_function(&conn);
-		make_cosine_distance_db_function(&conn);
-		conn.transaction().unwrap().commit();
+		make_hamming_distance_db_function(&mut write_connection);
+		make_byte_distance_db_function(&mut write_connection);
+		make_cosine_distance_db_function(&mut write_connection);
 
 		Engine {
-			pool,
+			read_connection: Arc::new(read_connection),
+			write_connection: Arc::new(Mutex::new(write_connection)),
 			files_crawled: None,
 			files_processed: None,
 			files_completed: None,
@@ -171,20 +169,33 @@ impl Engine {
 		// Image Processing Thread.
 		// file_rx / files_pending_processing
 		// img_rx / files_pending_storage
-		let pool = self.pool.clone();
 		let (file_rx, img_rx) = crawler::crawl_globs_async(all_globs, PARALLEL_FILE_PROCESSORS);
 		self.files_crawled = Some(file_rx.clone());
 		self.files_processed = Some(img_rx.clone());
+		let w_conn = self.write_connection.clone();
 		std::thread::spawn(move || {
-			let conn = pool.get().unwrap();
-			let mut stmt = conn.prepare("SELECT 1 FROM images WHERE path = ?").unwrap();
+			// To hold the lock as briefly as possible, we grab reads and writes very briefly.
+			// There is some overhead associated with getting the writes, so we might have to invert this pattern later.
 			while let Ok(img) = img_rx.recv() {
-				if !stmt.exists(params![&img.path]).unwrap() {
+				// Hold a short read lock and check if the image is already in our index.
+				let exists = {
+					let conn = w_conn.lock().unwrap();
+					let mut stmt = conn.prepare("SELECT 1 FROM images WHERE path = ?").unwrap();
+					!stmt.exists(params![&img.path]).unwrap()
+				};
+				// Image is not in our index.  Add it!
+				if !exists {
 					let fname = img.filename.clone();
-					if let Err(e) = Engine::insert_image(&conn, img) {
+					// Quickly lock and unlock.
+					let insert_result = {
+						let mut rw_conn = w_conn.lock().unwrap();
+						Engine::insert_image(&mut rw_conn, img)
+					};
+					if let Err(e) = insert_result {
 						eprintln!("Failed to track image: {}", &e);
 						failure_tx.send(format!("{}: {}", fname, e));
 					} else {
+						println!("Added image to db: {}", &fname);
 						success_tx.send(fname);
 					}
 				};
@@ -195,7 +206,7 @@ impl Engine {
 
 	//fn get_reindexing_status(&self) -> bool {}
 
-	fn insert_image(conn: &PooledConnection<SqliteConnectionManager>, mut img:IndexedImage) -> Result<()> {
+	fn insert_image(conn: &mut Connection, mut img:IndexedImage) -> Result<()> {
 		// Update the images table first...
 		conn.execute(
 			"INSERT INTO images (filename, path, image_width, image_height, thumbnail, thumbnail_width, thumbnail_height) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -232,7 +243,6 @@ impl Engine {
 
 		self.cached_search_results = None;
 
-		let conn = self.pool.get().unwrap();
 		let mut params:Vec<&dyn ToSql> = vec![];
 		let mut fields = "images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height ".to_string();
 		let mut source_table = "images ".to_string();
@@ -248,21 +258,23 @@ impl Engine {
 
 		let mut raw_statement = "SELECT {fields} FROM {source_table} WHERE {where_clause} ORDER BY {order_by}";
 
-		let mut prepared_statement = conn.prepare(raw_statement).unwrap();
-		let result_cursor = prepared_statement.query_map(params![], |row| {
-			Ok(indexed_image_from_row(row).expect("Unable to decode image in database."))
-		}).unwrap();
+		// Grab a read lock.
+		self.cached_search_results = {
+			let mut prepared_statement = self.read_connection.prepare(raw_statement).unwrap();
+			let result_cursor = prepared_statement.query_map(params![], |row| {
+				Ok(indexed_image_from_row(row).expect("Unable to decode image in database."))
+			}).unwrap();
 
-		self.cached_search_results = result_cursor.map(|item|{
-			Some(item.unwrap())
-		}).collect();
+			result_cursor.map(|item| {
+				Some(item.unwrap())
+			}).collect()
+		};
 	}
 
 	pub fn query_by_image_name(&mut self, text:&String) {
 		self.cached_search_results = None; // Starting query.
 
-		let conn = self.pool.get().unwrap();
-		let mut stmt = conn.prepare(r#"
+		let mut stmt = self.read_connection.prepare(r#"
 			SELECT images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height, image_hashes.hash
 			FROM images
 			JOIN semantic_hashes image_hashes ON images.id = image_hashes.image_id
@@ -279,7 +291,7 @@ impl Engine {
 	}
 
 	pub fn query_by_image_hash_from_file(&mut self, img:&Path) {
-		// No clearing cached results here because we do it in the next method.
+		self.cached_search_results = None;
 
 		let debug_start_load_image = Instant::now();
 		let indexed_image = IndexedImage::from_file_path(img).unwrap();
@@ -293,8 +305,7 @@ impl Engine {
 		self.cached_search_results = None;
 
 		let debug_start_db_query = Instant::now();
-		let conn = self.pool.get().unwrap();
-		let mut stmt = conn.prepare(r#"
+		let mut stmt = self.read_connection.prepare(r#"
 			SELECT images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height, image_hashes.hash, cosine_distance(?, image_hashes.hash) AS dist
 			FROM semantic_hashes image_hashes
 			JOIN images images ON images.id = image_hashes.image_id
@@ -327,22 +338,25 @@ impl Engine {
 	pub fn clear_query_results(&mut self) { self.cached_search_results = None; }
 
 	pub fn add_tracked_folder(&mut self, folder_glob:String) {
-		self.pool.get().unwrap().execute("INSERT INTO watched_directories (glob) VALUES (?1)", params![folder_glob]).unwrap();
+		{
+			self.write_connection.lock().unwrap().execute("INSERT INTO watched_directories (glob) VALUES (?1)", params![folder_glob]).unwrap();
+		}
 		self.watched_directories_cache = None; // Invalidate cache.
 		self.get_tracked_folders();
 	}
 
 	pub fn remove_tracked_folder(&mut self, folder_glob:String) {
-		self.pool.get().unwrap().execute("DELETE FROM watched_directories WHERE glob=?1", params![folder_glob]).unwrap();
+		{
+			self.write_connection.lock().unwrap().execute("DELETE FROM watched_directories WHERE glob=?1", params![folder_glob]).unwrap();
+		}
 		self.watched_directories_cache = None; // Invalidate cache.
 		self.get_tracked_folders();
 	}
 
 	pub fn get_tracked_folders(&mut self) -> &Vec<String> {
 		if self.watched_directories_cache.is_none() {
-			let conn = self.pool.get().unwrap();
-			let mut stmt = conn.prepare("SELECT glob FROM watched_directories").unwrap();
-			let glob_cursor = stmt.query_map(NO_PARAMS, |row|{
+			let mut stmt = self.read_connection.prepare("SELECT glob FROM watched_directories").unwrap();
+			let glob_cursor = stmt.query_map([], |row|{
 				let dir:String = row.get(0)?;
 				Ok(dir)
 			}).unwrap();
@@ -403,7 +417,7 @@ pub fn hamming_distance(hash_a:&Vec<u8>, hash_b:&Vec<u8>) -> f32 {
 
 // Add all the wrappers to the SQLite functions so we can use them in the database.
 
-fn make_cosine_distance_db_function(db: &PooledConnection<SqliteConnectionManager>) -> Result<()> {
+fn make_cosine_distance_db_function(db: &mut Connection) -> Result<()> {
 	db.create_scalar_function(
 		"cosine_distance",
 		2,
@@ -420,7 +434,7 @@ fn make_cosine_distance_db_function(db: &PooledConnection<SqliteConnectionManage
 }
 
 
-fn make_byte_distance_db_function(db: &PooledConnection<SqliteConnectionManager>) -> Result<()> {
+fn make_byte_distance_db_function(db: &mut Connection) -> Result<()> {
 	db.create_scalar_function(
 		"byte_distance",
 		2,
@@ -436,7 +450,7 @@ fn make_byte_distance_db_function(db: &PooledConnection<SqliteConnectionManager>
 	)
 }
 
-fn make_hamming_distance_db_function(db: &PooledConnection<SqliteConnectionManager>) -> Result<()> {
+fn make_hamming_distance_db_function(db: &mut Connection) -> Result<()> {
 	//fn make_hamming_distance_db_function(db: &Connection) -> Result<()> {
 	db.create_scalar_function(
 		"hamming_distance",
