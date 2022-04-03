@@ -15,6 +15,7 @@ image = "^0.24"
 #kamadak-exif = "0.5.4"
 lazy_static = "1.4.0"
 open = "2.0.2"
+parking_lot = "^0.12"
 rayon = "1.5.0"
 rfd = "^0.8"
 rusqlite = { version="^0.27", features=["bundled", "time", "functions"] } # bundled uses bundled version for Windows.

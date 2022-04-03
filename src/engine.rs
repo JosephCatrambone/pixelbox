@@ -7,10 +7,11 @@
 
 use crossbeam::channel;
 //use rayon::prelude::*;
+use parking_lot::FairMutex;
 use rusqlite::{params, Connection, Error, Result, Row, ToSql, OpenFlags};
 use rusqlite::functions::FunctionFlags;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::crawler;
@@ -53,8 +54,7 @@ fn indexed_image_from_row(row: &Row) -> Result<IndexedImage> {
 }
 
 pub struct Engine {
-	read_connection: Arc<Connection>,
-	write_connection: Arc<Mutex<Connection>>,
+	connection: Arc<FairMutex<Connection>>,
 
 	// Crawling and indexing:
 	files_crawled: Option<channel::Receiver<PathBuf>>,
@@ -96,16 +96,14 @@ impl Engine {
 	}
 
 	pub fn open(filename:&Path) -> Self {
-		let mut read_connection = Connection::open_with_flags(filename, OpenFlags::SQLITE_OPEN_READ_ONLY).expect("Unable to open SQLite DB for reading.");
-		let mut write_connection = Connection::open(filename).expect("Unable to open filename.");
+		let mut conn = Connection::open(filename).expect("Unable to open filename.");
 
-		make_hamming_distance_db_function(&mut write_connection);
-		make_byte_distance_db_function(&mut write_connection);
-		make_cosine_distance_db_function(&mut write_connection);
+		make_hamming_distance_db_function(&mut conn);
+		make_byte_distance_db_function(&mut conn);
+		make_cosine_distance_db_function(&mut conn);
 
 		Engine {
-			read_connection: Arc::new(read_connection),
-			write_connection: Arc::new(Mutex::new(write_connection)),
+			connection: Arc::new(FairMutex::new(conn)),
 			files_crawled: None,
 			files_processed: None,
 			files_completed: None,
@@ -172,30 +170,29 @@ impl Engine {
 		let (file_rx, img_rx) = crawler::crawl_globs_async(all_globs, PARALLEL_FILE_PROCESSORS);
 		self.files_crawled = Some(file_rx.clone());
 		self.files_processed = Some(img_rx.clone());
-		let w_conn = self.write_connection.clone();
+		let w_conn = self.connection.clone();
 		std::thread::spawn(move || {
 			// To hold the lock as briefly as possible, we grab reads and writes very briefly.
 			// There is some overhead associated with getting the writes, so we might have to invert this pattern later.
 			while let Ok(img) = img_rx.recv() {
 				// Hold a short read lock and check if the image is already in our index.
 				let exists = {
-					let conn = w_conn.lock().unwrap();
+					let conn = w_conn.lock();
 					let mut stmt = conn.prepare("SELECT 1 FROM images WHERE path = ?").unwrap();
-					!stmt.exists(params![&img.path]).unwrap()
+					stmt.exists(params![&img.path]).unwrap()
 				};
 				// Image is not in our index.  Add it!
 				if !exists {
 					let fname = img.filename.clone();
 					// Quickly lock and unlock.
 					let insert_result = {
-						let mut rw_conn = w_conn.lock().unwrap();
+						let mut rw_conn = w_conn.lock();
 						Engine::insert_image(&mut rw_conn, img)
 					};
 					if let Err(e) = insert_result {
 						eprintln!("Failed to track image: {}", &e);
 						failure_tx.send(format!("{}: {}", fname, e));
 					} else {
-						println!("Added image to db: {}", &fname);
 						success_tx.send(fname);
 					}
 				};
@@ -260,7 +257,8 @@ impl Engine {
 
 		// Grab a read lock.
 		self.cached_search_results = {
-			let mut prepared_statement = self.read_connection.prepare(raw_statement).unwrap();
+			let conn = self.connection.lock();
+			let mut prepared_statement = conn.prepare(raw_statement).unwrap();
 			let result_cursor = prepared_statement.query_map(params![], |row| {
 				Ok(indexed_image_from_row(row).expect("Unable to decode image in database."))
 			}).unwrap();
@@ -274,7 +272,8 @@ impl Engine {
 	pub fn query_by_image_name(&mut self, text:&String) {
 		self.cached_search_results = None; // Starting query.
 
-		let mut stmt = self.read_connection.prepare(r#"
+		let conn = self.connection.lock();
+		let mut stmt = conn.prepare(r#"
 			SELECT images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height, image_hashes.hash
 			FROM images
 			JOIN semantic_hashes image_hashes ON images.id = image_hashes.image_id
@@ -305,7 +304,8 @@ impl Engine {
 		self.cached_search_results = None;
 
 		let debug_start_db_query = Instant::now();
-		let mut stmt = self.read_connection.prepare(r#"
+		let conn = self.connection.lock();
+		let mut stmt = conn.prepare(r#"
 			SELECT images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height, image_hashes.hash, cosine_distance(?, image_hashes.hash) AS dist
 			FROM semantic_hashes image_hashes
 			JOIN images images ON images.id = image_hashes.image_id
@@ -339,7 +339,7 @@ impl Engine {
 
 	pub fn add_tracked_folder(&mut self, folder_glob:String) {
 		{
-			self.write_connection.lock().unwrap().execute("INSERT INTO watched_directories (glob) VALUES (?1)", params![folder_glob]).unwrap();
+			self.connection.lock().execute("INSERT INTO watched_directories (glob) VALUES (?1)", params![folder_glob]).unwrap();
 		}
 		self.watched_directories_cache = None; // Invalidate cache.
 		self.get_tracked_folders();
@@ -347,7 +347,7 @@ impl Engine {
 
 	pub fn remove_tracked_folder(&mut self, folder_glob:String) {
 		{
-			self.write_connection.lock().unwrap().execute("DELETE FROM watched_directories WHERE glob=?1", params![folder_glob]).unwrap();
+			self.connection.lock().execute("DELETE FROM watched_directories WHERE glob=?1", params![folder_glob]).unwrap();
 		}
 		self.watched_directories_cache = None; // Invalidate cache.
 		self.get_tracked_folders();
@@ -355,7 +355,8 @@ impl Engine {
 
 	pub fn get_tracked_folders(&mut self) -> &Vec<String> {
 		if self.watched_directories_cache.is_none() {
-			let mut stmt = self.read_connection.prepare("SELECT glob FROM watched_directories").unwrap();
+			let conn = self.connection.lock();
+			let mut stmt = conn.prepare("SELECT glob FROM watched_directories").unwrap();
 			let glob_cursor = stmt.query_map([], |row|{
 				let dir:String = row.get(0)?;
 				Ok(dir)
