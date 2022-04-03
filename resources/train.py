@@ -4,6 +4,8 @@ from collections import namedtuple
 from datetime import datetime
 from typing import Any, Type
 
+from tardataset import TarDataset
+
 import numpy
 import random
 import torch
@@ -42,8 +44,28 @@ def build_model(latent_space: int):
 	return model
 
 
+class TarImageLoader(TarDataset):
+	def __init__(self, archive_file, corruptions):
+		super(TarImageLoader, self).__init__(archive_file)  # Perform no transformations here.
+		self.corruptions = corruptions
+
+	def __getitem__(self, index: int) -> Any:
+		left_image = self.corruptions(super().get_image(self.samples[index], pil=True))
+		other_index = index
+		label = 1.0
+		if random.choice([True, False]):
+			other_index = random.randint(0, len(self)-1)
+			label = -1.0
+			if other_index == index:
+				label = 1.0  # In the slim chance we happen to pick exactly the same index at random...
+		#right_image = self.corruptions(super().__getitem__(other_index))
+		right_image = self.corruptions(super().get_image(self.samples[other_index], pil=True))
+		label = torch.tensor(label)
+		return left_image, right_image, label
+
+
 class PlainImageLoader(torchvision.datasets.VisionDataset):
-	def __init__(self, root, corruptions):
+	def __init__(self, root, corruptions, safety_check: bool = True):
 		super(PlainImageLoader, self).__init__(root)
 		self.corruptions = corruptions
 		self.all_image_filenames = glob(os.path.join(root, "*.jpg"))
@@ -52,18 +74,19 @@ class PlainImageLoader(torchvision.datasets.VisionDataset):
 		self.all_image_filenames.extend(glob(os.path.join(root, "**", "*.png")))
 		self.all_image_filenames.extend(glob(os.path.join(root, "*.gif")))
 		self.all_image_filenames.extend(glob(os.path.join(root, "**", "*.gif")))
-		# Filter images that can't get loaded.  This is a little slow but saves some headache.
-		to_remove = list()
-		for filename in self.all_image_filenames:
-			try:
-				_ = Image.open(filename).convert("RGB")
-			except KeyboardInterrupt:
-				raise
-			except Exception as e:
-				print(f"Failed to read {filename}: {e}")
-				to_remove.append(filename)
-		for filename in to_remove:
-			self.all_image_filenames.remove(filename)
+		if safety_check:
+			# Filter images that can't get loaded.  This is a little slow but saves some headache.
+			to_remove = list()
+			for filename in self.all_image_filenames:
+				try:
+					_ = Image.open(filename).convert("RGB")
+				except KeyboardInterrupt:
+					raise
+				except Exception as e:
+					print(f"Failed to read {filename}: {e}")
+					to_remove.append(filename)
+			for filename in to_remove:
+				self.all_image_filenames.remove(filename)
 		print(f"Training set has {len(self.all_image_filenames)} images.")
 
 	def __getitem__(self, index: int) -> Any:
@@ -88,8 +111,6 @@ class PlainImageLoader(torchvision.datasets.VisionDataset):
 def train(model, config: Type[Configuration]):
 	model = model.to(DEVICE)
 
-	training_data_directory = config.DATA_PATH
-
 	# Define our mutations to perform on the network.
 	# We expect a PIL as an Input and return a Tensor
 	corruptions = torchvision.transforms.Compose([
@@ -107,7 +128,8 @@ def train(model, config: Type[Configuration]):
 	loss_fn = torch.nn.CosineEmbeddingLoss()
 	optimizer = torch.optim.Adam(model.parameters(), lr=config.LEARNING_RATE)
 	#dataset = torchvision.datasets.ImageFolder(training_data_directory, transform=corruptions)
-	dataset = PlainImageLoader(training_data_directory, corruptions)  # We will do the corruptions ourselves.
+	#dataset = PlainImageLoader(config.DATA_PATH, corruptions)  # We will do the corruptions ourselves.
+	dataset = TarImageLoader(config.DATA_PATH, corruptions)
 	dataset_loader = torch.utils.data.DataLoader(dataset, batch_size=config.BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True)
 
 	# Training loop:
@@ -161,14 +183,12 @@ def main():
 		ENCODER_INPUT_HEIGHT=255,
 		LATENT_SPACE_SIZE=latent_space,
 		LEARNING_RATE=1e-6,
-		EPOCHS=300,
-		BATCH_SIZE=32,
-		DATA_PATH="E:\\Pictures",
+		EPOCHS=10,
+		BATCH_SIZE=16,
+		#DATA_PATH="E:\\Pictures",
+		DATA_PATH="E:\\tmp\\downsampled-open-images-v4\\512px\\train-512.tar",
 		ARCHITECTURE=str(model),
-		NOTES="""Same as before, but more epochs.  Prev note: The smaller model is either garbage or insufficiently trained.  Losses were near zero at the end, so 
-		I have to speculate that it's just not big enough to capture the kinds of data in which we're interested.  I'm
-		going to remove the horizontal and vertical random flips because I think it might be hurting the approximate
-		hashing.  Also using -1, 1 for cosine distance again.""",
+		NOTES="""The larger dataset seems to be helping.  Same, but with more EPOCHs.""",
 		TRAINING_LOSSES=[],
 	)
 	log_timestamp = datetime.strftime(datetime.now(), "%Y%m%d%H%M%S")
