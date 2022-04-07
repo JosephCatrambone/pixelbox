@@ -7,12 +7,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+anyhow = "^1.0"  # For convenient Result types.  Can switch to Enums with inner-error captures later on.
 crossbeam = "0.8.1"
 eframe = "0.17.0" # Gives us egui, epi and web+native backends
 egui_extras = "0.17.0"
 glob = "0.3.0"
 image = "^0.24"
-#kamadak-exif = "0.5.4"
+kamadak-exif = "^0.5"
 lazy_static = "1.4.0"
 open = "2.0.2"
 parking_lot = "^0.12"

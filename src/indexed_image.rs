@@ -1,3 +1,8 @@
+use anyhow::Result;
+use std::collections::HashMap;
+use std::error::Error;
+use std::fs::File;
+use std::io::BufReader;
 use std::time::Instant;
 use std::path::Path;
 //use exif::{Field, Exif, };
@@ -20,6 +25,8 @@ pub struct IndexedImage {
 	pub created: Instant,
 	pub indexed: Instant,
 
+	pub tags: HashMap<String, String>,
+
 	pub phash: Option<Vec<u8>>,
 	pub visual_hash: Option<Vec<u8>>, // For visual-similarity, like style and structure.  Not for content.
 	//pub content_hash: Option<Vec<u8>>, //
@@ -28,15 +35,23 @@ pub struct IndexedImage {
 }
 
 impl IndexedImage {
-	pub fn from_file_path(path:&Path) -> Result<Self, ImageError> {
+	pub fn from_file_path(path:&Path) -> Result<Self> {
 		let mut img = image::open(path)?;
+		//let mut img = image::io::Reader::new(&mut image_buffer).decode()?;
 
 		let thumb = img.thumbnail(THUMBNAIL_SIZE.0, THUMBNAIL_SIZE.1).to_rgb8();
 
 		// Also parse the EXIF data.
-		// I wish we didn't need to re-read the file.  :|
-		//let exifreader = exif::Reader::new();
-		//let exif = exifreader.read_from_container(&mut bufreader)?;
+		// TODO: I wish we didn't need to re-read the file.  :|
+		let fin = File::open(path)?;
+		let mut image_buffer = std::io::BufReader::new(fin);
+		let mut tags = HashMap::<String, String>::new();
+		let mut exifreader = exif::Reader::new();
+		if let Ok(exif) = exifreader.read_from_container(&mut image_buffer) {
+			for field in exif.fields() {
+				tags.insert(field.tag.to_string(), field.display_value().to_string());
+			}
+		}
 
 		// And generate a perceptual hash.
 		let hash = Some(mlhash(&img));
@@ -51,6 +66,8 @@ impl IndexedImage {
 				thumbnail_resolution: (thumb.width(), thumb.height()),
 				created: Instant::now(),
 				indexed: Instant::now(),
+
+				tags: tags,
 
 				phash: None, // Some(phash(&img)),  // Disable for a little while to check performance.
 				visual_hash: hash,
@@ -67,3 +84,14 @@ pub fn stringify_filepath(path: &Path) -> String {
 	path.canonicalize().unwrap().display().to_string()
 }
 
+#[cfg(test)]
+mod tests {
+	// Note this useful idiom: importing names from outer (for mod tests) scope.
+	use super::*;
+
+	#[test]
+	fn test_load_resource() {
+		let img = IndexedImage::from_file_path(Path::new("test_resources/flat_white.png"));
+		//assert_eq!(add(1, 2), 3);
+	}
+}
