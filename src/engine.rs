@@ -10,6 +10,7 @@ use crossbeam::channel;
 use parking_lot::FairMutex;
 use rusqlite::{params, Connection, Error, Result, Row, ToSql, OpenFlags};
 use rusqlite::functions::FunctionFlags;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -34,6 +35,11 @@ const IMAGE_SCHEMA_V1: &'static str = "CREATE TABLE images (
 	created          DATETIME,
 	indexed          DATETIME
 )";
+const TAG_SCHEMA_V1: &'static str = "CREATE TABLE tags (
+	image_id		INTEGER,
+	name			TEXT NOT NULL,
+	value			TEXT
+)";
 const WATCHED_DIRECTORIES_SCHEMA_V1: &'static str = "CREATE TABLE watched_directories (glob TEXT PRIMARY KEY)";
 const HASH_TABLE_SCHEMA_V1: &'static str = "CREATE TABLE $tablename$ (image_id INTEGER PRIMARY KEY, hash BLOB)";
 
@@ -47,6 +53,7 @@ fn indexed_image_from_row(row: &Row) -> Result<IndexedImage> {
 		thumbnail_resolution: (row.get(6)?, row.get(7)?),
 		created: Instant::now(), //row.get(8)?
 		indexed: Instant::now(), //row.get(9)?
+		tags: HashMap::new(),
 		phash: None,
 		visual_hash: row.get(8)?,
 		distance_from_query: None,
@@ -77,6 +84,7 @@ impl Engine {
 		// Initialize our image DB and our indices.
 		conn.execute(IMAGE_SCHEMA_V1, params![]).unwrap();
 		conn.execute(WATCHED_DIRECTORIES_SCHEMA_V1, []).unwrap();
+		conn.execute(TAG_SCHEMA_V1, []).unwrap();
 
 		// phashes and semantic hashes should be identical instructure so we can swap them out.
 		// Can't use prepared statements for CREATE TABLE, so we have to substitute $tablename$.
@@ -223,6 +231,14 @@ impl Engine {
 		)?;
 		img.id = conn.last_insert_rowid();
 
+		// Insert the tags.
+		img.tags.iter().for_each(|(tag_name, tag_value)| {
+			conn.execute(
+				"INSERT INTO tags (image_id, name, value) VALUES (?, ?, ?)",
+				params![&img.id, tag_name, tag_value]
+			).expect(&format!("Failed to insert tag into database for image ID {}", &img.id));
+		});
+
 		// Add the hashes.
 		if let Some(hash) = img.phash {
 			conn.execute(
@@ -240,7 +256,7 @@ impl Engine {
 		Ok(())
 	}
 
-	pub fn query(&mut self, text:&String) {
+	pub fn query(&mut self, where_clause:&String) {
 		// This will parse and process the full query.
 		// Magic phrases:
 		// filename: matches filename
@@ -252,25 +268,40 @@ impl Engine {
 
 		self.cached_search_results = None;
 
-		let mut params:Vec<&dyn ToSql> = vec![];
-		let mut fields = "images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height ".to_string();
-		let mut source_table = "images ".to_string();
-		let mut order_by = String::new();  // Empty!
+		//let included_distance_hash = "cosine_distance(?, semantic_hashes.hash)";
+		let included_distance_hash = "0.0";
 
-		// If there's image: or file: in the query we need to load it and join to the fields.
-		if text.contains("file:") || text.contains("image:") {
-			fields += "cosine_distance(?, image_hashes.hash) AS dist";
-			source_table += "JOIN semantic_hashes image_hashes ON images.id = image_hashes.image_id";
-			order_by = "dist DESC".to_string();
-			//params.push(indexed_image.visual_hash);
-		}
-
-		let mut raw_statement = "SELECT {fields} FROM {source_table} WHERE {where_clause} ORDER BY {order_by}";
+		let mut statement = format!("
+			WITH grouped_tags AS (
+				SELECT tags.image_id, json_group_array(json_object(
+					tags.name, tags.value
+				)) as tags
+				FROM tags
+				GROUP BY tags.image_id
+			)
+			SELECT images.*, grouped_tags.tags, {} AS dist
+			FROM images
+			JOIN semantic_hashes ON images.id = semantic_hashes.image_id
+			JOIN grouped_tags ON images.id = grouped_tags.image_id
+			JOIN tags ON images.id = tags.image_id
+			WHERE {}
+			GROUP BY images.id
+			ORDER BY dist ASC
+			LIMIT 100;
+		", included_distance_hash, where_clause);
 
 		// Grab a read lock.
 		self.cached_search_results = {
 			let conn = self.connection.lock();
-			let mut prepared_statement = conn.prepare(raw_statement).unwrap();
+
+			// Try and perform the user's query (or some version of our assembled query).
+			let mut prepared_statement = conn.prepare(&statement);
+			if prepared_statement.is_err() {
+				return;  // TODO: Report what's wrong.
+			}
+			let mut prepared_statement = prepared_statement.unwrap();
+
+			// Parse and process results.
 			let result_cursor = prepared_statement.query_map(params![], |row| {
 				Ok(indexed_image_from_row(row).expect("Unable to decode image in database."))
 			}).unwrap();
