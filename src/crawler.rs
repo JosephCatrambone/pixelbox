@@ -68,7 +68,7 @@ pub fn crawl_globs_async(globs:Vec<String>, parallel_file_loaders:usize) -> (Rec
 fn is_supported_extension(path:&PathBuf) -> bool {
 	if let Some(extension) = path.extension().and_then(|s| s.to_str()) {
 		let ext = extension.to_lowercase();
-		for &supported_extension in &["png", "bmp", "jpg", "jpeg", "gif"] {
+		for &supported_extension in &["png", "bmp", "jpg", "jpeg", "gif", "tiff", "heif"] {
 			if ext == supported_extension {
 				return true;
 			}
