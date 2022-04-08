@@ -5,10 +5,11 @@
 /// Engine manages the spidering, indexing, and keeping track of images.
 ///
 
+use anyhow::Result;
 use crossbeam::channel;
 //use rayon::prelude::*;
 use parking_lot::FairMutex;
-use rusqlite::{params, Connection, Error, Result, Row, ToSql, OpenFlags};
+use rusqlite::{params, Connection, Error as SQLError, Result as SQLResult, Row, ToSql, OpenFlags};
 use rusqlite::functions::FunctionFlags;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -43,7 +44,7 @@ const TAG_SCHEMA_V1: &'static str = "CREATE TABLE tags (
 const WATCHED_DIRECTORIES_SCHEMA_V1: &'static str = "CREATE TABLE watched_directories (glob TEXT PRIMARY KEY)";
 const HASH_TABLE_SCHEMA_V1: &'static str = "CREATE TABLE $tablename$ (image_id INTEGER PRIMARY KEY, hash BLOB)";
 
-fn indexed_image_from_row(row: &Row) -> Result<IndexedImage> {
+fn indexed_image_from_row(row: &Row) -> SQLResult<IndexedImage> {
 	Ok(IndexedImage {
 		id: row.get(0)?,
 		filename: row.get(1)?,
@@ -256,7 +257,7 @@ impl Engine {
 		Ok(())
 	}
 
-	pub fn query(&mut self, where_clause:&String) {
+	pub fn query(&mut self, where_clause:&String) -> Result<()> {
 		// This will parse and process the full query.
 		// Magic phrases:
 		// filename: matches filename
@@ -295,21 +296,19 @@ impl Engine {
 			let conn = self.connection.lock();
 
 			// Try and perform the user's query (or some version of our assembled query).
-			let mut prepared_statement = conn.prepare(&statement);
-			if prepared_statement.is_err() {
-				return;  // TODO: Report what's wrong.
-			}
-			let mut prepared_statement = prepared_statement.unwrap();
+			let mut prepared_statement = conn.prepare(&statement)?;
 
 			// Parse and process results.
 			let result_cursor = prepared_statement.query_map(params![], |row| {
 				Ok(indexed_image_from_row(row).expect("Unable to decode image in database."))
-			}).unwrap();
+			})?;
 
 			result_cursor.map(|item| {
 				Some(item.unwrap())
 			}).collect()
 		};
+
+		Ok(())
 	}
 
 	pub fn query_by_image_name(&mut self, text:&String) {
@@ -420,6 +419,63 @@ impl Engine {
 	}
 }
 
+// Query utility functions:
+fn tokenize_query(query: String) -> std::result::Result<Vec<String>, String> {
+	let mut spans = vec![];
+	let mut next_character_escaped = false;
+	let mut quote_active = false;
+	let mut active_string = String::new(); // We accumulate into this, stopping at a space if not quoted or stopping at an end-quote if quoted.
+	for character in query.chars() {
+		if next_character_escaped {
+			active_string.push(character);
+			next_character_escaped = false;
+		} else {
+			match character {
+				'"' => {
+					// This double is NOT quoted, so we are either starting or finishing a quote.
+					if !quote_active { // We are starting.
+						quote_active = true;
+					} else { // We are finishing a quote.
+						quote_active = false;
+						spans.push(active_string);
+						active_string = String::new();
+					}
+				},
+				'\\' => {
+					// A backtick!
+					next_character_escaped = true;
+				},
+				' ' => {
+					// If we are in a quote, continue.  Otherwise break the word.
+					if quote_active {
+						active_string.push(' ');
+					} else {
+						// We are at a breakpoint, but if the active word is empty there's no sense in pushing it.
+						if !active_string.is_empty() {
+							spans.push(active_string);
+							active_string = String::new();
+						}
+					}
+				},
+				_ => active_string.push(character)
+			}
+		}
+	};
+
+	if quote_active {
+		return Err("String tokenization failed: trailing open-quote.".to_string());
+	} else if next_character_escaped {
+		return Err("String tokenization failed: trailing escape character.".to_string());
+	}
+
+	// Push the last trailing active string into the spans.
+	if !active_string.is_empty() {
+		spans.push(active_string);
+	}
+
+	Ok(spans)
+}
+
 //
 // Distance Functions
 // Distance functions should return near zero for almost identical items and a large value for different ones.
@@ -461,15 +517,15 @@ pub fn hamming_distance(hash_a:&Vec<u8>, hash_b:&Vec<u8>) -> f32 {
 
 // Add all the wrappers to the SQLite functions so we can use them in the database.
 
-fn make_cosine_distance_db_function(db: &mut Connection) -> Result<()> {
+fn make_cosine_distance_db_function(db: &mut Connection) -> SQLResult<()> {
 	db.create_scalar_function(
 		"cosine_distance",
 		2,
 		FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
 		move |ctx| {
 			let dist = {
-				let lhs = ctx.get_raw(0).as_blob().map_err(|e| Error::UserFunctionError(e.into()))?;
-				let rhs = ctx.get_raw(1).as_blob().map_err(|e| Error::UserFunctionError(e.into()))?;
+				let lhs = ctx.get_raw(0).as_blob().map_err(|e| SQLError::UserFunctionError(e.into()))?;
+				let rhs = ctx.get_raw(1).as_blob().map_err(|e| SQLError::UserFunctionError(e.into()))?;
 				cosine_distance(&lhs.to_vec(), &rhs.to_vec())
 			};
 			Ok(dist as f64)
@@ -477,15 +533,15 @@ fn make_cosine_distance_db_function(db: &mut Connection) -> Result<()> {
 	)
 }
 
-fn make_byte_distance_db_function(db: &mut Connection) -> Result<()> {
+fn make_byte_distance_db_function(db: &mut Connection) -> SQLResult<()> {
 	db.create_scalar_function(
 		"byte_distance",
 		2,
 		FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
 		move |ctx| {
 			let dist = {
-				let lhs = ctx.get_raw(0).as_blob().map_err(|e| Error::UserFunctionError(e.into()))?;
-				let rhs = ctx.get_raw(1).as_blob().map_err(|e| Error::UserFunctionError(e.into()))?;
+				let lhs = ctx.get_raw(0).as_blob().map_err(|e| SQLError::UserFunctionError(e.into()))?;
+				let rhs = ctx.get_raw(1).as_blob().map_err(|e| SQLError::UserFunctionError(e.into()))?;
 				byte_distance(&lhs.to_vec(), &rhs.to_vec())
 			};
 			Ok(dist as f64)
@@ -493,7 +549,7 @@ fn make_byte_distance_db_function(db: &mut Connection) -> Result<()> {
 	)
 }
 
-fn make_hamming_distance_db_function(db: &mut Connection) -> Result<()> {
+fn make_hamming_distance_db_function(db: &mut Connection) -> SQLResult<()> {
 	//fn make_hamming_distance_db_function(db: &Connection) -> Result<()> {
 	db.create_scalar_function(
 		"hamming_distance",
@@ -509,8 +565,8 @@ fn make_hamming_distance_db_function(db: &mut Connection) -> Result<()> {
 			*/
 			// This repeatedly grabs and regenerates the LHS.  We should change it.
 			let distance = {
-				let lhs = ctx.get_raw(0).as_blob().map_err(|e| Error::UserFunctionError(e.into()))?;
-				let rhs = ctx.get_raw(1).as_blob().map_err(|e| Error::UserFunctionError(e.into()))?;
+				let lhs = ctx.get_raw(0).as_blob().map_err(|e| SQLError::UserFunctionError(e.into()))?;
+				let rhs = ctx.get_raw(1).as_blob().map_err(|e| SQLError::UserFunctionError(e.into()))?;
 				hamming_distance(&lhs.to_vec(), &rhs.to_vec())
 			};
 			Ok(distance as f64)
@@ -524,6 +580,27 @@ fn make_hamming_distance_db_function(db: &mut Connection) -> Result<()> {
 mod tests {
 	use crate::engine::hamming_distance;
 	use crate::engine::cosine_distance;
+	use crate::engine::tokenize_query;
+
+	#[test]
+	fn test_tokenize_query() {
+		let mut tokens;
+
+		tokens = tokenize_query("abc".to_string()).unwrap();
+		assert_eq!(tokens, vec!["abc".to_string()]);
+
+		tokens = tokenize_query("abc def".to_string()).unwrap();
+		assert_eq!(tokens, vec!["abc".to_string(), "def".to_string()]);
+
+		tokens = tokenize_query(r#"abc "def ghi""#.to_string()).unwrap();
+		assert_eq!(tokens, vec!["abc".to_string(), "def ghi".to_string()]);
+
+		tokens = tokenize_query(r#"abc \"def ghi\""#.to_string()).unwrap();
+		assert_eq!(tokens, vec!["abc".to_string(), "\"def".to_string(), "ghi\"".to_string()]);
+
+		tokens = tokenize_query(r#""the human torch was denied a bank loan" "the \"human torch\"""#.to_string()).unwrap();
+		assert_eq!(tokens, vec!["the human torch was denied a bank loan".to_string(), "the \"human torch\"".to_string()]);
+	}
 
 	#[test]
 	fn test_hamming_distance() {
