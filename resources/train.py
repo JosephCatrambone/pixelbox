@@ -43,7 +43,7 @@ def build_model(latent_space: int):
 
 
 class PlainImageLoader(torchvision.datasets.VisionDataset):
-	def __init__(self, root, corruptions):
+	def __init__(self, root, corruptions, scan_for_broken_images:bool = False):
 		super(PlainImageLoader, self).__init__(root)
 		self.corruptions = corruptions
 		self.all_image_filenames = glob(os.path.join(root, "*.jpg"))
@@ -52,19 +52,21 @@ class PlainImageLoader(torchvision.datasets.VisionDataset):
 		self.all_image_filenames.extend(glob(os.path.join(root, "**", "*.png")))
 		self.all_image_filenames.extend(glob(os.path.join(root, "*.gif")))
 		self.all_image_filenames.extend(glob(os.path.join(root, "**", "*.gif")))
-		# Filter images that can't get loaded.  This is a little slow but saves some headache.
-		to_remove = list()
-		for filename in self.all_image_filenames:
-			try:
-				_ = Image.open(filename).convert("RGB")
-			except KeyboardInterrupt:
-				raise
-			except Exception as e:
-				print(f"Failed to read {filename}: {e}")
-				to_remove.append(filename)
-		for filename in to_remove:
-			self.all_image_filenames.remove(filename)
-		print(f"Training set has {len(self.all_image_filenames)} images.")
+		if scan_for_broken_images:
+			# Filter images that can't get loaded.  This is a little slow but saves some headache.
+			print("Scanning for broken images...")
+			to_remove = list()
+			for filename in tqdm(self.all_image_filenames):
+				try:
+					_ = Image.open(filename).convert("RGB")
+				except KeyboardInterrupt:
+					raise
+				except Exception as e:
+					print(f"Failed to read {filename}: {e}")
+					to_remove.append(filename)
+			for filename in to_remove:
+				self.all_image_filenames.remove(filename)
+			print(f"Training set has {len(self.all_image_filenames)} images.")
 
 	def __getitem__(self, index: int) -> Any:
 		img_left = self.corruptions(Image.open(self.all_image_filenames[index]).convert("RGB"))
@@ -138,7 +140,8 @@ def train(model, config: Type[Configuration]):
 
 		print(f"Epoch [{epoch_idx}/{config.EPOCHS}] loss: {total_epoch_loss}")
 		epoch_losses.append(total_epoch_loss)
-		torch.save(model.state_dict(), f"checkpoints/checkpoint_{epoch_idx}")
+		#torch.save(model.state_dict(), f"checkpoints/checkpoint_{epoch_idx}")
+		torch.save(model, f"checkpoints/checkpoint_{epoch_idx}.pt")
 	torch.save(model, "result_model.pt")
 	return epoch_losses
 
@@ -161,14 +164,11 @@ def main():
 		ENCODER_INPUT_HEIGHT=255,
 		LATENT_SPACE_SIZE=latent_space,
 		LEARNING_RATE=1e-6,
-		EPOCHS=300,
+		EPOCHS=10,
 		BATCH_SIZE=32,
-		DATA_PATH="E:\\Pictures",
+		DATA_PATH="/home/joseph/512/",
 		ARCHITECTURE=str(model),
-		NOTES="""Same as before, but more epochs.  Prev note: The smaller model is either garbage or insufficiently trained.  Losses were near zero at the end, so 
-		I have to speculate that it's just not big enough to capture the kinds of data in which we're interested.  I'm
-		going to remove the horizontal and vertical random flips because I think it might be hurting the approximate
-		hashing.  Also using -1, 1 for cosine distance again.""",
+                NOTES="""Using -1, 1 for cosine distance again.  Switching to the full webimage 512 dataset with 1.7M images.""",
 		TRAINING_LOSSES=[],
 	)
 	log_timestamp = datetime.strftime(datetime.now(), "%Y%m%d%H%M%S")
