@@ -290,13 +290,28 @@ impl Engine {
 		// min_width:, max_width:, min_height:, max_height:
 		// Absent all that, full-text search on all of these.
 
+		if where_clause.is_empty() {
+			return Ok(()); // Bail early!
+			// TODO: Should we clear results?
+		}
+
+		let mut parameters = params![];
 		let parsed_query = tokenize_query(where_clause)?;
 		let where_clause = build_where_clause_from_parsed_query(&parsed_query, &mut self.cached_image_search);
 
 		self.cached_search_results = None;
 
-		//let included_distance_hash = "cosine_distance(?, semantic_hashes.hash)";
-		let included_distance_hash = "0.0";
+		let included_distance_hash = match &self.cached_image_search {
+			Some(img) => {
+				if let Some(hash) = &img.visual_hash {
+					parameters = params![hash];
+					"cosine_distance(?, semantic_hashes.hash)"
+				} else {
+					"0.0"
+				}
+			},
+			None => "0.0"
+		};
 
 		let mut statement = format!("
 			WITH grouped_tags AS (
@@ -307,7 +322,7 @@ impl Engine {
 				GROUP BY tags.image_id
 			)
 			SELECT
-				{}
+				{},
 				grouped_tags.tags,
 				{} AS dist
 			FROM images
@@ -343,30 +358,6 @@ impl Engine {
 		};
 
 		Ok(())
-	}
-
-	pub fn query_by_image_name(&mut self, text:&String) {
-		self.cached_search_results = None; // Starting query.
-
-		let conn = self.connection.lock();
-		let mut stmt = conn.prepare(&format!(r#"
-			SELECT
-				{},
-				semantic_hashes.hash
-			FROM images
-			JOIN semantic_hashes ON images.id = semantic_hashes.image_id
-			WHERE images.filename LIKE ?1
-			LIMIT 100
-		"#, SELECT_FIELDS)).expect("Internal 'query_by_image_name' method is not correct. This is a programmer bug!");
-		let img_cursor = stmt.query_map(params![text], |row| {
-			let mut img = indexed_image_from_row(row).expect("Failed to unpack immage from mmquery_by_image_name. Row is corrupt or programmer messed up.");
-			img.visual_hash = Some(row.get(8)?);
-			Ok(img)
-		}).unwrap();
-
-		self.cached_search_results = Some(img_cursor.map(|item|{
-			item.unwrap()
-		}).collect());
 	}
 
 	pub fn query_by_image_hash_from_file(&mut self, img:&Path) {
@@ -515,9 +506,54 @@ fn tokenize_query(query: &String) -> Result<Vec<String>> {
 	Ok(spans)
 }
 
-fn build_where_clause_from_parsed_query(tokens: &Vec<String>, cached_similar_image: &mut Option<IndexedImage>) -> String {
-	// One thing that is messy here: we replace  "similar:<path>" with "similar:blob"
-	todo!()
+fn build_where_clause_from_parsed_query(tokens: &Vec<String>, mut cached_similar_image: &mut Option<IndexedImage>) -> String {
+	// If there's a magic prefix like "similar", "filename", or a tag, add that to a 'where'.
+	// Otherwise, search all of the tags and exif data.
+
+	let mut and_where_clauses = vec![];
+	for token in tokens {
+		if let Some((magic_prefix, remaining)) = token.split_once(':') {
+			let magic_prefix = magic_prefix.to_string().to_lowercase();
+			// SPECIAL CASE FOR VISUAL SIMILARITY!
+			// I hate that this is separate and would like to clean up this method.
+			// It's kinda' a different modality of searching.
+			if magic_prefix.eq("similar") {
+				// If we already hashed this image and it is unchanged, don't recalculate.
+				let mut needs_recalculation = false;
+
+				// If there's no cached image, obviously we need to recalculate.
+				if cached_similar_image.is_none() {
+					needs_recalculation = true;
+				}
+
+				// If the cached image is different to the last one, we need to recalc.
+				if let Some(img) = cached_similar_image {
+					// TODO: For case-sensitive operating systems this might need to change.
+					if !img.path.eq_ignore_ascii_case(remaining) {
+						needs_recalculation = true;
+					}
+				}
+
+				if needs_recalculation {
+					let debug_start_load_image = Instant::now();
+					let indexed_image = IndexedImage::from_file_path(Path::new(remaining));
+					let debug_end_load_image = Instant::now();
+					eprintln!("Time to compute image hash: {:?}", debug_end_load_image - debug_start_load_image);
+					*cached_similar_image = indexed_image.ok();
+				}
+			}
+
+			if magic_prefix.eq("filename") {
+				and_where_clauses.push(format!("images.filename LIKE '%{}%'", &remaining));
+			}
+		} else {
+			// Search for this value in EVERY field.
+			// TODO: We should use '?', though it's not a security vulnerability because it's a strictly local DB.
+			and_where_clauses.push(format!(" (tags.value LIKE '%{}%' OR images.filename LIKE '%{}%' OR images.path LIKE '%{}%') ", token, token, token));
+		}
+	}
+
+	and_where_clauses.join(" AND ")
 }
 
 //
