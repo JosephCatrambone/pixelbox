@@ -5,11 +5,14 @@
 /// Engine manages the spidering, indexing, and keeping track of images.
 ///
 
+use anyhow::{anyhow, Result};
 use crossbeam::channel;
 //use rayon::prelude::*;
 use parking_lot::FairMutex;
-use rusqlite::{params, Connection, Error, Result, Row, ToSql, OpenFlags};
+use rusqlite::{params, Connection, Error as SQLError, Result as SQLResult, Row, ToSql, OpenFlags};
 use rusqlite::functions::FunctionFlags;
+use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -22,6 +25,11 @@ type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 const PARALLEL_FILE_PROCESSORS: usize = 8;
 const DEFAULT_MAX_QUERY_DISTANCE: f64 = 1e6; // f64 implements ToSql in SQLite. f32 doesn't.
 const MAX_PENDING_FILEPATHS: usize = 1000;
+
+//
+// Schemas
+// If any of these change we will need to update methods.
+//
 const IMAGE_SCHEMA_V1: &'static str = "CREATE TABLE images (
 	id               INTEGER PRIMARY KEY,
 	filename         TEXT NOT NULL,
@@ -34,10 +42,30 @@ const IMAGE_SCHEMA_V1: &'static str = "CREATE TABLE images (
 	created          DATETIME,
 	indexed          DATETIME
 )";
+const TAG_SCHEMA_V1: &'static str = "CREATE TABLE tags (
+	image_id		INTEGER,
+	name			TEXT NOT NULL,
+	value			TEXT
+)";
 const WATCHED_DIRECTORIES_SCHEMA_V1: &'static str = "CREATE TABLE watched_directories (glob TEXT PRIMARY KEY)";
 const HASH_TABLE_SCHEMA_V1: &'static str = "CREATE TABLE $tablename$ (image_id INTEGER PRIMARY KEY, hash BLOB)";
+// These are all explicitly ordered so they work with indexed_image_from_row.
+// Does not include the trailing dist operation or tags.
+const SELECT_FIELDS: &'static str = "
+	images.id,
+	images.filename,
+	images.path,
+	images.image_width,
+	images.image_height,
+	images.thumbnail,
+	images.thumbnail_width,
+	images.thumbnail_height
+";
+// End Schemas
 
-fn indexed_image_from_row(row: &Row) -> Result<IndexedImage> {
+// We should implement try_from_row for this.
+// The last entry is seven, so tags or hashes start at row.get(8).
+fn indexed_image_from_row(row: &Row) -> SQLResult<IndexedImage> {
 	Ok(IndexedImage {
 		id: row.get(0)?,
 		filename: row.get(1)?,
@@ -47,8 +75,9 @@ fn indexed_image_from_row(row: &Row) -> Result<IndexedImage> {
 		thumbnail_resolution: (row.get(6)?, row.get(7)?),
 		created: Instant::now(), //row.get(8)?
 		indexed: Instant::now(), //row.get(9)?
+		tags: HashMap::new(),
 		phash: None,
-		visual_hash: row.get(8)?,
+		visual_hash: None,
 		distance_from_query: None,
 	})
 }
@@ -67,7 +96,8 @@ pub struct Engine {
 
 	// Searching and filtering.
 	max_distance_from_query: f64,
-	cached_search_results: Option<Vec<IndexedImage>>,
+	cached_search_results: Option<Vec<IndexedImage>>,  // For keeping track of the last time a query ran.
+	cached_image_search: Option<IndexedImage>, // If the user is searching for a similar image: "similar:abc", this is the path.  We should compare when the abc changes.
 }
 
 impl Engine {
@@ -77,6 +107,7 @@ impl Engine {
 		// Initialize our image DB and our indices.
 		conn.execute(IMAGE_SCHEMA_V1, params![]).unwrap();
 		conn.execute(WATCHED_DIRECTORIES_SCHEMA_V1, []).unwrap();
+		conn.execute(TAG_SCHEMA_V1, []).unwrap();
 
 		// phashes and semantic hashes should be identical instructure so we can swap them out.
 		// Can't use prepared statements for CREATE TABLE, so we have to substitute $tablename$.
@@ -108,6 +139,7 @@ impl Engine {
 			
 			max_distance_from_query: DEFAULT_MAX_QUERY_DISTANCE,
 			cached_search_results: None,
+			cached_image_search: None,
 		}
 	}
 
@@ -223,6 +255,14 @@ impl Engine {
 		)?;
 		img.id = conn.last_insert_rowid();
 
+		// Insert the tags.
+		img.tags.iter().for_each(|(tag_name, tag_value)| {
+			conn.execute(
+				"INSERT INTO tags (image_id, name, value) VALUES (?, ?, ?)",
+				params![&img.id, tag_name, tag_value]
+			).expect(&format!("Failed to insert tag into database for image ID {}", &img.id));
+		});
+
 		// Add the hashes.
 		if let Some(hash) = img.phash {
 			conn.execute(
@@ -240,7 +280,7 @@ impl Engine {
 		Ok(())
 	}
 
-	pub fn query(&mut self, text:&String) {
+	pub fn query(&mut self, where_clause:&String) -> Result<()> {
 		// This will parse and process the full query.
 		// Magic phrases:
 		// filename: matches filename
@@ -250,55 +290,74 @@ impl Engine {
 		// min_width:, max_width:, min_height:, max_height:
 		// Absent all that, full-text search on all of these.
 
-		self.cached_search_results = None;
-
-		let mut params:Vec<&dyn ToSql> = vec![];
-		let mut fields = "images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height ".to_string();
-		let mut source_table = "images ".to_string();
-		let mut order_by = String::new();  // Empty!
-
-		// If there's image: or file: in the query we need to load it and join to the fields.
-		if text.contains("file:") || text.contains("image:") {
-			fields += "cosine_distance(?, image_hashes.hash) AS dist";
-			source_table += "JOIN semantic_hashes image_hashes ON images.id = image_hashes.image_id";
-			order_by = "dist DESC".to_string();
-			//params.push(indexed_image.visual_hash);
+		if where_clause.is_empty() {
+			return Ok(()); // Bail early!
+			// TODO: Should we clear results?
 		}
 
-		let mut raw_statement = "SELECT {fields} FROM {source_table} WHERE {where_clause} ORDER BY {order_by}";
+		let mut parameters = params![];
+		let parsed_query = tokenize_query(where_clause)?;
+		let where_clause = build_where_clause_from_parsed_query(&parsed_query, &mut self.cached_image_search);
+
+		self.cached_search_results = None;
+
+		let included_distance_hash = match &self.cached_image_search {
+			Some(img) => {
+				if let Some(hash) = &img.visual_hash {
+					parameters = params![hash];
+					"cosine_distance(?, semantic_hashes.hash)"
+				} else {
+					"0.0"
+				}
+			},
+			None => "0.0"
+		};
+
+		let mut statement = format!("
+			WITH grouped_tags AS (
+				SELECT tags.image_id, json_group_array(json_object(
+					tags.name, tags.value
+				)) as tags
+				FROM tags
+				GROUP BY tags.image_id
+			)
+			SELECT
+				{},
+				grouped_tags.tags,
+				{} AS dist
+			FROM images
+			JOIN semantic_hashes ON images.id = semantic_hashes.image_id
+			JOIN grouped_tags ON images.id = grouped_tags.image_id
+			JOIN tags ON images.id = tags.image_id
+			WHERE {}
+			GROUP BY images.id
+			ORDER BY dist ASC
+			LIMIT 100;
+		", SELECT_FIELDS, included_distance_hash, where_clause);
 
 		// Grab a read lock.
 		self.cached_search_results = {
 			let conn = self.connection.lock();
-			let mut prepared_statement = conn.prepare(raw_statement).unwrap();
+
+			// Try and perform the user's query (or some version of our assembled query).
+			let mut prepared_statement = conn.prepare(&statement)?;
+
+			// Parse and process results.
 			let result_cursor = prepared_statement.query_map(params![], |row| {
-				Ok(indexed_image_from_row(row).expect("Unable to decode image in database."))
-			}).unwrap();
+				let mut img = indexed_image_from_row(row).expect("Unable to decode image in database.");
+				img.visual_hash = match row.get(8) {
+					Ok(res) => Some(res),
+					_ => None
+				};
+				Ok(img)
+			})?;
 
 			result_cursor.map(|item| {
 				Some(item.unwrap())
 			}).collect()
 		};
-	}
 
-	pub fn query_by_image_name(&mut self, text:&String) {
-		self.cached_search_results = None; // Starting query.
-
-		let conn = self.connection.lock();
-		let mut stmt = conn.prepare(r#"
-			SELECT images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height, image_hashes.hash
-			FROM images
-			JOIN semantic_hashes image_hashes ON images.id = image_hashes.image_id
-			WHERE images.filename LIKE ?1
-			LIMIT 100
-		"#).unwrap();
-		let img_cursor = stmt.query_map(params![text], |row|{
-			indexed_image_from_row(row)
-		}).unwrap();
-
-		self.cached_search_results = Some(img_cursor.map(|item|{
-			item.unwrap()
-		}).collect());
+		Ok(())
 	}
 
 	pub fn query_by_image_hash_from_file(&mut self, img:&Path) {
@@ -317,15 +376,16 @@ impl Engine {
 
 		let debug_start_db_query = Instant::now();
 		let conn = self.connection.lock();
-		let mut stmt = conn.prepare(r#"
-			SELECT images.id, images.filename, images.path, images.image_width, images.image_height, images.thumbnail, images.thumbnail_width, images.thumbnail_height, image_hashes.hash, cosine_distance(?, image_hashes.hash) AS dist
-			FROM semantic_hashes image_hashes
-			JOIN images images ON images.id = image_hashes.image_id
+		let mut stmt = conn.prepare(&format!(r#"
+			SELECT {}, semantic_hashes.hash, cosine_distance(?, semantic_hashes.hash) AS dist
+			FROM semantic_hashes
+			JOIN images images ON images.id = semantic_hashes.image_id
 			WHERE dist < ?
 			ORDER BY dist ASC
-			LIMIT 100"#).unwrap();
+			LIMIT 100"#, SELECT_FIELDS)).expect("The query for query_by_image_hash_from_image is wrong! The developer messed up!");
 		let img_cursor = stmt.query_map(params![indexed_image.visual_hash, self.max_distance_from_query], |row|{
 			let mut img = indexed_image_from_row(row).expect("Unable to unwrap result from database");
+			img.visual_hash = Some(row.get(8)?);
 			img.distance_from_query = Some(row.get(9)?);
 			Ok(img)
 		}).unwrap();
@@ -389,6 +449,113 @@ impl Engine {
 	}
 }
 
+// Query utility functions:
+fn tokenize_query(query: &String) -> Result<Vec<String>> {
+	let mut spans = vec![];
+	let mut next_character_escaped = false;
+	let mut quote_active = false;
+	let mut active_string = String::new(); // We accumulate into this, stopping at a space if not quoted or stopping at an end-quote if quoted.
+	for character in query.chars() {
+		if next_character_escaped {
+			active_string.push(character);
+			next_character_escaped = false;
+		} else {
+			match character {
+				'"' => {
+					// This double is NOT quoted, so we are either starting or finishing a quote.
+					if !quote_active { // We are starting.
+						quote_active = true;
+					} else { // We are finishing a quote.
+						quote_active = false;
+						spans.push(active_string);
+						active_string = String::new();
+					}
+				},
+				'\\' => {
+					// A backtick!
+					next_character_escaped = true;
+				},
+				' ' => {
+					// If we are in a quote, continue.  Otherwise break the word.
+					if quote_active {
+						active_string.push(' ');
+					} else {
+						// We are at a breakpoint, but if the active word is empty there's no sense in pushing it.
+						if !active_string.is_empty() {
+							spans.push(active_string);
+							active_string = String::new();
+						}
+					}
+				},
+				_ => active_string.push(character)
+			}
+		}
+	};
+
+	if quote_active {
+		return Err(anyhow!("String tokenization failed: trailing open-quote.".to_string()));
+	} else if next_character_escaped {
+		return Err(anyhow!("String tokenization failed: trailing escape character.".to_string()));
+	}
+
+	// Push the last trailing active string into the spans.
+	if !active_string.is_empty() {
+		spans.push(active_string);
+	}
+
+	Ok(spans)
+}
+
+fn build_where_clause_from_parsed_query(tokens: &Vec<String>, mut cached_similar_image: &mut Option<IndexedImage>) -> String {
+	// If there's a magic prefix like "similar", "filename", or a tag, add that to a 'where'.
+	// Otherwise, search all of the tags and exif data.
+
+	let mut and_where_clauses = vec![];
+	for token in tokens {
+		if let Some((magic_prefix, remaining)) = token.split_once(':') {
+			let magic_prefix = magic_prefix.to_string().to_lowercase();
+			// SPECIAL CASE FOR VISUAL SIMILARITY!
+			// I hate that this is separate and would like to clean up this method.
+			// It's kinda' a different modality of searching.
+			if magic_prefix.eq("similar") {
+				// If we already hashed this image and it is unchanged, don't recalculate.
+				let mut needs_recalculation = false;
+
+				// If there's no cached image, obviously we need to recalculate.
+				if cached_similar_image.is_none() {
+					needs_recalculation = true;
+				}
+
+				// If the cached image is different to the last one, we need to recalc.
+				if let Some(img) = cached_similar_image {
+					// TODO: For case-sensitive operating systems this might need to change.
+					if !img.path.eq_ignore_ascii_case(remaining) {
+						needs_recalculation = true;
+					}
+				}
+
+				if needs_recalculation {
+					let debug_start_load_image = Instant::now();
+					let indexed_image = IndexedImage::from_file_path(Path::new(remaining));
+					let debug_end_load_image = Instant::now();
+					eprintln!("Time to compute image hash: {:?}", debug_end_load_image - debug_start_load_image);
+					*cached_similar_image = indexed_image.ok();
+				}
+			}
+
+			if magic_prefix.eq("filename") {
+				and_where_clauses.push(format!("images.filename LIKE '%{}%'", &remaining));
+			}
+		} else {
+			// Search for this value in EVERY field.
+			// TODO: We should use '?', though it's not a security vulnerability because it's a strictly local DB.
+			and_where_clauses.push(format!(" (tags.value LIKE '%{}%' OR images.filename LIKE '%{}%' OR images.path LIKE '%{}%') ", token, token, token));
+		}
+	}
+
+	and_where_clauses.join(" AND ")
+}
+
 //
 // Distance Functions
 // Distance functions should return near zero for almost identical items and a large value for different ones.
@@ -430,15 +597,15 @@ pub fn hamming_distance(hash_a:&Vec<u8>, hash_b:&Vec<u8>) -> f32 {
 
 // Add all the wrappers to the SQLite functions so we can use them in the database.
 
-fn make_cosine_distance_db_function(db: &mut Connection) -> Result<()> {
+fn make_cosine_distance_db_function(db: &mut Connection) -> SQLResult<()> {
 	db.create_scalar_function(
 		"cosine_distance",
 		2,
 		FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
 		move |ctx| {
 			let dist = {
-				let lhs = ctx.get_raw(0).as_blob().map_err(|e| Error::UserFunctionError(e.into()))?;
-				let rhs = ctx.get_raw(1).as_blob().map_err(|e| Error::UserFunctionError(e.into()))?;
+				let lhs = ctx.get_raw(0).as_blob().map_err(|e| SQLError::UserFunctionError(e.into()))?;
+				let rhs = ctx.get_raw(1).as_blob().map_err(|e| SQLError::UserFunctionError(e.into()))?;
 				cosine_distance(&lhs.to_vec(), &rhs.to_vec())
 			};
 			Ok(dist as f64)
@@ -446,15 +613,15 @@ fn make_cosine_distance_db_function(db: &mut Connection) -> Result<()> {
 	)
 }
 
-fn make_byte_distance_db_function(db: &mut Connection) -> Result<()> {
+fn make_byte_distance_db_function(db: &mut Connection) -> SQLResult<()> {
 	db.create_scalar_function(
 		"byte_distance",
 		2,
 		FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
 		move |ctx| {
 			let dist = {
-				let lhs = ctx.get_raw(0).as_blob().map_err(|e| Error::UserFunctionError(e.into()))?;
-				let rhs = ctx.get_raw(1).as_blob().map_err(|e| Error::UserFunctionError(e.into()))?;
+				let lhs = ctx.get_raw(0).as_blob().map_err(|e| SQLError::UserFunctionError(e.into()))?;
+				let rhs = ctx.get_raw(1).as_blob().map_err(|e| SQLError::UserFunctionError(e.into()))?;
 				byte_distance(&lhs.to_vec(), &rhs.to_vec())
 			};
 			Ok(dist as f64)
@@ -462,7 +629,7 @@ fn make_byte_distance_db_function(db: &mut Connection) -> Result<()> {
 	)
 }
 
-fn make_hamming_distance_db_function(db: &mut Connection) -> Result<()> {
+fn make_hamming_distance_db_function(db: &mut Connection) -> SQLResult<()> {
 	//fn make_hamming_distance_db_function(db: &Connection) -> Result<()> {
 	db.create_scalar_function(
 		"hamming_distance",
@@ -478,8 +645,8 @@ fn make_hamming_distance_db_function(db: &mut Connection) -> Result<()> {
 			*/
 			// This repeatedly grabs and regenerates the LHS.  We should change it.
 			let distance = {
-				let lhs = ctx.get_raw(0).as_blob().map_err(|e| Error::UserFunctionError(e.into()))?;
-				let rhs = ctx.get_raw(1).as_blob().map_err(|e| Error::UserFunctionError(e.into()))?;
+				let lhs = ctx.get_raw(0).as_blob().map_err(|e| SQLError::UserFunctionError(e.into()))?;
+				let rhs = ctx.get_raw(1).as_blob().map_err(|e| SQLError::UserFunctionError(e.into()))?;
 				hamming_distance(&lhs.to_vec(), &rhs.to_vec())
 			};
 			Ok(distance as f64)
@@ -493,6 +660,27 @@ fn make_hamming_distance_db_function(db: &mut Connection) -> Result<()> {
 mod tests {
 	use crate::engine::hamming_distance;
 	use crate::engine::cosine_distance;
+	use crate::engine::tokenize_query;
+
+	#[test]
+	fn test_tokenize_query() {
+		let mut tokens;
+
+		tokens = tokenize_query(&"abc".to_string()).unwrap();
+		assert_eq!(tokens, vec!["abc".to_string()]);
+
+		tokens = tokenize_query(&"abc def".to_string()).unwrap();
+		assert_eq!(tokens, vec!["abc".to_string(), "def".to_string()]);
+
+		tokens = tokenize_query(&r#"abc "def ghi""#.to_string()).unwrap();
+		assert_eq!(tokens, vec!["abc".to_string(), "def ghi".to_string()]);
+
+		tokens = tokenize_query(&r#"abc \"def ghi\""#.to_string()).unwrap();
+		assert_eq!(tokens, vec!["abc".to_string(), "\"def".to_string(), "ghi\"".to_string()]);
+
+		tokens = tokenize_query(&r#""the human torch was denied a bank loan" "the \"human torch\"""#.to_string()).unwrap();
+		assert_eq!(tokens, vec!["the human torch was denied a bank loan".to_string(), "the \"human torch\"".to_string()]);
+	}
 
 	#[test]
 	fn test_hamming_distance() {

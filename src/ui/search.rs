@@ -22,19 +22,32 @@ pub fn search_panel(
 		if ui.button("Search by Image").clicked() {
 			if let Some(file_path) = rfd::FileDialog::new().pick_file() {
 				app_state.engine.as_mut().unwrap().query_by_image_hash_from_file(Path::new(&file_path))
+				//app_state.engine.as_mut().unwrap().query(&format!("similar:{}", file_path.to_str().unwrap()));
 			}
 		}
 
 		// Search by image drag+drop support.
 		if let Some(images) = detect_files_being_dropped(ui.ctx()) {
 			app_state.engine.as_mut().unwrap().query_by_image_hash_from_file(images.first().unwrap().path.as_ref().unwrap())
+			//app_state.engine.as_mut().unwrap().query(&format!("similar:{}", images.first().unwrap().path.unwrap().to_str().unwrap()));
 		}
 		
 		// Universal Search
 		if ui.text_edit_singleline(&mut app_state.search_text).changed() {
-			app_state.engine.as_mut().unwrap().query_by_image_name(&app_state.search_text.clone())
+			let query_success = app_state.engine.as_mut().unwrap().query(&app_state.search_text.clone());
+			if let Err(q) = query_success {
+				app_state.query_error = q.to_string();
+			} else {
+				app_state.query_error = "".to_string();
+			}
+			//app_state.engine.as_mut().unwrap().query_by_image_name(&app_state.search_text.clone())
 		}
 	});
+
+	// Show parsing errors in query.
+	if !app_state.query_error.is_empty() {
+		ui.label(&app_state.query_error);
+	}
 
 	if let Some(results) = app_state.engine.as_ref().unwrap().get_query_results() {
 		ui.heading("Results");
