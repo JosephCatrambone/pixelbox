@@ -32,6 +32,7 @@ pub struct MainApp {
 	
 	// Search Tab:
 	search_text: String,
+	query_error: String,
 	some_value: f32,
 	current_page: u64,
 
@@ -53,6 +54,7 @@ impl Default for MainApp {
 			image_id_to_texture_handle: HashMap::new(),
 			
 			search_text: "".to_string(),
+			query_error: "".to_string(),
 			some_value: 1.0f32,
 			current_page: 0u64,
 
