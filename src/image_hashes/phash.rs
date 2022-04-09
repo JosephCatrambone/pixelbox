@@ -23,6 +23,7 @@ pub fn phash(img:&DynamicImage) -> Vec<u8> {
 
 #[cfg(test)]
 mod test {
+	use criterion;
 	use image;
 	use crate::engine::hamming_distance;
 	use crate::image_hashes::phash::*;
@@ -68,9 +69,10 @@ mod test {
 		assert!(hamming_distance(&flat_hash, &img_rot_hash) > 0.5);
 	}
 	
-	#[bench]
-	fn bench_phash(b: &mut test::Bencher) {
+	//#[bench]
+	fn bench_phash(b: &mut criterion::Criterion) {
 		let img = image::open("test_resources/flat_white.png").unwrap();
+
 		b.bench_function("plain_phash_256x256", move |bencher|{
 			phash(&img);
 		});
