@@ -5,7 +5,7 @@
 /// Engine manages the spidering, indexing, and keeping track of images.
 ///
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use crossbeam::channel;
 //use rayon::prelude::*;
 use parking_lot::FairMutex;
@@ -267,6 +267,10 @@ impl Engine {
 		// min_width:, max_width:, min_height:, max_height:
 		// Absent all that, full-text search on all of these.
 
+		let parsed_query = tokenize_query(where_clause)?;
+
+		// Build the where clause from the parsed query.
+
 		self.cached_search_results = None;
 
 		//let included_distance_hash = "cosine_distance(?, semantic_hashes.hash)";
@@ -420,7 +424,7 @@ impl Engine {
 }
 
 // Query utility functions:
-fn tokenize_query(query: String) -> std::result::Result<Vec<String>, String> {
+fn tokenize_query(query: &String) -> Result<Vec<String>> {
 	let mut spans = vec![];
 	let mut next_character_escaped = false;
 	let mut quote_active = false;
@@ -463,9 +467,9 @@ fn tokenize_query(query: String) -> std::result::Result<Vec<String>, String> {
 	};
 
 	if quote_active {
-		return Err("String tokenization failed: trailing open-quote.".to_string());
+		return Err(anyhow!("String tokenization failed: trailing open-quote.".to_string()));
 	} else if next_character_escaped {
-		return Err("String tokenization failed: trailing escape character.".to_string());
+		return Err(anyhow!("String tokenization failed: trailing escape character.".to_string()));
 	}
 
 	// Push the last trailing active string into the spans.
@@ -474,6 +478,10 @@ fn tokenize_query(query: String) -> std::result::Result<Vec<String>, String> {
 	}
 
 	Ok(spans)
+}
+
+fn build_where_clause_from_parsed_query(tokens: &Vec<String>) -> String {
+	todo!()
 }
 
 //
@@ -586,19 +594,19 @@ mod tests {
 	fn test_tokenize_query() {
 		let mut tokens;
 
-		tokens = tokenize_query("abc".to_string()).unwrap();
+		tokens = tokenize_query(&"abc".to_string()).unwrap();
 		assert_eq!(tokens, vec!["abc".to_string()]);
 
-		tokens = tokenize_query("abc def".to_string()).unwrap();
+		tokens = tokenize_query(&"abc def".to_string()).unwrap();
 		assert_eq!(tokens, vec!["abc".to_string(), "def".to_string()]);
 
-		tokens = tokenize_query(r#"abc "def ghi""#.to_string()).unwrap();
+		tokens = tokenize_query(&r#"abc "def ghi""#.to_string()).unwrap();
 		assert_eq!(tokens, vec!["abc".to_string(), "def ghi".to_string()]);
 
-		tokens = tokenize_query(r#"abc \"def ghi\""#.to_string()).unwrap();
+		tokens = tokenize_query(&r#"abc \"def ghi\""#.to_string()).unwrap();
 		assert_eq!(tokens, vec!["abc".to_string(), "\"def".to_string(), "ghi\"".to_string()]);
 
-		tokens = tokenize_query(r#""the human torch was denied a bank loan" "the \"human torch\"""#.to_string()).unwrap();
+		tokens = tokenize_query(&r#""the human torch was denied a bank loan" "the \"human torch\"""#.to_string()).unwrap();
 		assert_eq!(tokens, vec!["the human torch was denied a bank loan".to_string(), "the \"human torch\"".to_string()]);
 	}
 
