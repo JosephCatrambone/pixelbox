@@ -11,6 +11,7 @@ use crossbeam::channel;
 use parking_lot::FairMutex;
 use rusqlite::{params, Connection, Error as SQLError, Result as SQLResult, Row, ToSql, OpenFlags};
 use rusqlite::functions::FunctionFlags;
+use serde_json::{Result as JSONResult, Value as JSONValue};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
@@ -280,7 +281,7 @@ impl Engine {
 		Ok(())
 	}
 
-	pub fn query(&mut self, where_clause:&String) -> Result<()> {
+	pub fn query(&mut self, user_input:&String) -> Result<()> {
 		// This will parse and process the full query.
 		// Magic phrases:
 		// filename: matches filename
@@ -290,13 +291,13 @@ impl Engine {
 		// min_width:, max_width:, min_height:, max_height:
 		// Absent all that, full-text search on all of these.
 
-		if where_clause.is_empty() {
+		if user_input.is_empty() {
 			return Ok(()); // Bail early!
 			// TODO: Should we clear results?
 		}
 
 		let mut parameters = params![];
-		let parsed_query = tokenize_query(where_clause)?;
+		let parsed_query = tokenize_query(user_input)?;
 		let where_clause = build_where_clause_from_parsed_query(&parsed_query, &mut self.cached_image_search);
 
 		self.cached_search_results = None;
@@ -323,12 +324,13 @@ impl Engine {
 			)
 			SELECT
 				{},
+				semantic_hashes.hash,
 				grouped_tags.tags,
 				{} AS dist
 			FROM images
-			JOIN semantic_hashes ON images.id = semantic_hashes.image_id
-			JOIN grouped_tags ON images.id = grouped_tags.image_id
-			JOIN tags ON images.id = tags.image_id
+			INNER JOIN semantic_hashes ON images.id = semantic_hashes.image_id
+			LEFT JOIN grouped_tags ON images.id = grouped_tags.image_id
+			LEFT JOIN tags ON images.id = tags.image_id
 			WHERE {}
 			GROUP BY images.id
 			ORDER BY dist ASC
@@ -349,6 +351,7 @@ impl Engine {
 					Ok(res) => Some(res),
 					_ => None
 				};
+				img.distance_from_query = row.get(10).ok();
 				Ok(img)
 			})?;
 
@@ -356,6 +359,8 @@ impl Engine {
 				Some(item.unwrap())
 			}).collect()
 		};
+		
+		println!("{} results", &self.cached_search_results.as_ref().unwrap().len());
 
 		Ok(())
 	}
@@ -372,6 +377,12 @@ impl Engine {
 	}
 
 	pub fn query_by_image_hash_from_image(&mut self, indexed_image:&IndexedImage) {
+		if indexed_image.visual_hash.is_none() {
+			// TODO: Error-handling here.
+			eprintln!("TODO: IndexedImage is somehow missing a hash!");
+			return;
+		}
+
 		self.cached_search_results = None;
 
 		let debug_start_db_query = Instant::now();
@@ -379,10 +390,11 @@ impl Engine {
 		let mut stmt = conn.prepare(&format!(r#"
 			SELECT {}, semantic_hashes.hash, cosine_distance(?, semantic_hashes.hash) AS dist
 			FROM semantic_hashes
-			JOIN images images ON images.id = semantic_hashes.image_id
+			INNER JOIN images images ON images.id = semantic_hashes.image_id
 			WHERE dist < ?
 			ORDER BY dist ASC
-			LIMIT 100"#, SELECT_FIELDS)).expect("The query for query_by_image_hash_from_image is wrong! The developer messed up!");
+			LIMIT 100"#, SELECT_FIELDS
+		)).expect("The query for query_by_image_hash_from_image is wrong! The developer messed up!");
 		let img_cursor = stmt.query_map(params![indexed_image.visual_hash, self.max_distance_from_query], |row|{
 			let mut img = indexed_image_from_row(row).expect("Unable to unwrap result from database");
 			img.visual_hash = Some(row.get(8)?);
@@ -390,12 +402,7 @@ impl Engine {
 			Ok(img)
 		}).unwrap();
 
-		self.cached_search_results = Some(img_cursor.map(|item|{
-			match item {
-				Err(problem) => panic!("Problem unwrapping result from database: {:?}", problem),
-				Ok(res) => res
-			}
-		}).collect());
+		self.cached_search_results = Some(img_cursor.flat_map(|item| item).collect());
 		let debug_end_db_query = Instant::now();
 		
 		let result_count = self.cached_search_results.as_ref().unwrap().len();
