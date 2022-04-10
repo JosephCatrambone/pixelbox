@@ -19,8 +19,9 @@ open = "2.0.2"
 parking_lot = "^0.12"
 rayon = "1.5.0"
 rfd = "^0.8"
-rusqlite = { version="^0.27", features=["bundled", "time", "functions"] } # bundled uses bundled version for Windows.
-serde = { version = "*", features = ["derive"], optional = true }
+rusqlite = { version="^0.27", features=["bundled", "time", "functions"] } # bundled uses bundled version for Windows.  blob feature might be needed for io.
+serde = { version = "^1.0", features = ["derive"], optional = true }
+serde_json = "^1.0"
 tract-onnx = "0.15.8"
 
 [dev-dependencies]
