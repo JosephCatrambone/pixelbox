@@ -69,6 +69,7 @@ pub fn search_panel(
 								}
 								if ui.button("Open in View Tab").clicked() {
 									//let _ = std::process::Command::new("open").arg(&res.path).output();
+									app_state.selected_image = Some(res.clone());
 									app_state.active_tab = AppTab::View;
 									ui.close_menu();
 								}

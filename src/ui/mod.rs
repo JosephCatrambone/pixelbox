@@ -2,18 +2,36 @@ pub mod menutabs;
 pub mod search;
 pub mod start;
 pub mod folders;
+pub mod view;
 
 use std::collections::HashMap;
 use eframe::egui;
 use eframe::egui::ColorImage;
 use eframe::egui::Ui;
 use egui_extras::RetainedImage;
+use image;
 use tract_onnx::prelude::tract_itertools::Itertools;
 
 use crate::indexed_image;
 use crate::indexed_image::IndexedImage;
 
-fn img_to_egui_colorimage(indexed_image: &IndexedImage, alpha_fill:u8) -> ColorImage {
+fn load_image_from_path(path: &std::path::Path) -> Result<ColorImage, image::ImageError> {
+	let image = image::io::Reader::open(path)?.decode()?;
+	let size = [image.width() as _, image.height() as _];
+	let image_buffer = image.to_rgba8();
+	let pixels = image_buffer.as_flat_samples();
+	Ok(egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice(),))
+}
+
+fn load_image_from_memory(image_data: &[u8]) -> Result<ColorImage, image::ImageError> {
+	let image = image::load_from_memory(image_data)?;
+	let size = [image.width() as _, image.height() as _];
+	let image_buffer = image.to_rgba8();
+	let pixels = image_buffer.as_flat_samples();
+	Ok(ColorImage::from_rgba_unmultiplied(size, pixels.as_slice(),))
+}
+
+fn indexed_image_to_egui_colorimage(indexed_image: &IndexedImage, alpha_fill:u8) -> ColorImage {
 	let num_pixels = indexed_image.thumbnail_resolution.0 * indexed_image.thumbnail_resolution.1;
 	let mut new_vec = Vec::with_capacity((num_pixels / 3 * 4) as usize);
 	indexed_image.thumbnail.chunks(3).for_each(|p|{
@@ -33,7 +51,7 @@ pub fn fetch_or_generate_thumbnail(res: &IndexedImage, thumbnail_cache: &mut Has
 	match thumbnail_cache.get(&res.id) {
 		Some(tid) => tid.clone(),
 		None => {
-			let texture = ctx.load_texture(res.path.clone(), img_to_egui_colorimage(res, 255u8));
+			let texture = ctx.load_texture(res.path.clone(), indexed_image_to_egui_colorimage(res, 255u8));
 			thumbnail_cache.insert(res.id, texture.clone());
 			texture
 		}
