@@ -22,6 +22,7 @@ use crate::crawler;
 use crate::indexed_image::*;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
+type JSONMap = HashMap<String, JSONValue>;
 
 const PARALLEL_FILE_PROCESSORS: usize = 8;
 const DEFAULT_MAX_QUERY_DISTANCE: f64 = 1e6; // f64 implements ToSql in SQLite. f32 doesn't.
@@ -316,9 +317,9 @@ impl Engine {
 
 		let mut statement = format!("
 			WITH grouped_tags AS (
-				SELECT tags.image_id, json_group_array(json_object(
+				SELECT tags.image_id, JSON(JSON_GROUP_ARRAY(JSON_OBJECT(
 					tags.name, tags.value
-				)) as tags
+				))) as tags
 				FROM tags
 				GROUP BY tags.image_id
 			)
@@ -347,10 +348,19 @@ impl Engine {
 			// Parse and process results.
 			let result_cursor = prepared_statement.query_map(params![], |row| {
 				let mut img = indexed_image_from_row(row).expect("Unable to decode image in database.");
-				img.visual_hash = match row.get(8) {
-					Ok(res) => Some(res),
-					_ => None
-				};
+				img.visual_hash = row.get(8).ok();
+				img.tags = HashMap::new();
+				let maybe_tag_data: SQLResult<JSONValue> = row.get(9);
+				if let Ok(tag_data) = maybe_tag_data {
+					// TODO: The returned JSON is a bit messy.  It's a Vec of single-key-single-value items.
+					// Example: "[{\"ImageWidth\":\"2592\"},{\"BitsPerSample\":\"8, 8, 8\"},{\"YCbCrPositioning\":\"centered\"},{\"DateTimeOriginal\":\"2012-10-10 10:49:15\"},{\"DateTimeDigitized\":\"2002-12-08 12:00:00\"},{\"JPEGInterchangeFormatLength\":\"8663\"},...
+					// When we clean up the query we should clean up this method.
+					if let Some(map_obj) = tag_data.as_object() {
+						for (k, v) in map_obj.iter() {
+							img.tags.insert(k.to_string(), v.to_string());
+						}
+					}
+				}
 				img.distance_from_query = row.get(10).ok();
 				Ok(img)
 			})?;
@@ -547,6 +557,16 @@ fn build_where_clause_from_parsed_query(tokens: &Vec<String>, mut cached_similar
 					let debug_end_load_image = Instant::now();
 					eprintln!("Time to compute image hash: {:?}", debug_end_load_image - debug_start_load_image);
 					*cached_similar_image = indexed_image.ok();
+				}
+			}
+
+			if magic_prefix.eq("exif") {
+				// Split the remaining into tag and target.
+				// If there's no ':' then search both.
+				if let Some((tag, target)) = remaining.split_once(":") {
+					and_where_clauses.push(format!("(tags.name LIKE '%{}%' AND tags.value LIKE '%{}%')", tag, target));
+				} else {
+					and_where_clauses.push(format!("(tags.name LIKE '%{}%' OR tags.value LIKE '%{}%')", &remaining, &remaining));
 				}
 			}
 
