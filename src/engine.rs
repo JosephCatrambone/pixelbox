@@ -296,11 +296,8 @@ impl Engine {
 		}
 
 		let mut parameters = params![];
-		dbg!(&user_input);
 		let parsed_query = tokenize_query(user_input)?;
-		dbg!(&parsed_query);
 		let where_clause = build_where_clause_from_parsed_query(&parsed_query, &mut self.cached_image_search);
-		dbg!(&where_clause);
 
 		self.cached_search_results = None;
 
@@ -329,14 +326,16 @@ impl Engine {
 				grouped_tags.tags,
 				{} AS dist
 			FROM images
-			JOIN semantic_hashes ON images.id = semantic_hashes.image_id
-			JOIN grouped_tags ON images.id = grouped_tags.image_id
-			JOIN tags ON images.id = tags.image_id
+			INNER JOIN semantic_hashes ON images.id = semantic_hashes.image_id
+			LEFT JOIN grouped_tags ON images.id = grouped_tags.image_id
+			LEFT JOIN tags ON images.id = tags.image_id
 			WHERE {}
 			GROUP BY images.id
 			ORDER BY dist ASC
 			LIMIT 100;
 		", SELECT_FIELDS, included_distance_hash, where_clause);
+		
+		println!("{}", &statement);
 
 		// Grab a read lock.
 		self.cached_search_results = {
@@ -359,6 +358,8 @@ impl Engine {
 				Some(item.unwrap())
 			}).collect()
 		};
+		
+		println!("{} results", &self.cached_search_results.as_ref().unwrap().len());
 
 		Ok(())
 	}
