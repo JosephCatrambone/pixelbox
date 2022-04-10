@@ -280,7 +280,7 @@ impl Engine {
 		Ok(())
 	}
 
-	pub fn query(&mut self, where_clause:&String) -> Result<()> {
+	pub fn query(&mut self, user_input:&String) -> Result<()> {
 		// This will parse and process the full query.
 		// Magic phrases:
 		// filename: matches filename
@@ -290,14 +290,17 @@ impl Engine {
 		// min_width:, max_width:, min_height:, max_height:
 		// Absent all that, full-text search on all of these.
 
-		if where_clause.is_empty() {
+		if user_input.is_empty() {
 			return Ok(()); // Bail early!
 			// TODO: Should we clear results?
 		}
 
 		let mut parameters = params![];
-		let parsed_query = tokenize_query(where_clause)?;
+		dbg!(&user_input);
+		let parsed_query = tokenize_query(user_input)?;
+		dbg!(&parsed_query);
 		let where_clause = build_where_clause_from_parsed_query(&parsed_query, &mut self.cached_image_search);
+		dbg!(&where_clause);
 
 		self.cached_search_results = None;
 
