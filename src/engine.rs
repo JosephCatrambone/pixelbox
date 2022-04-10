@@ -11,6 +11,7 @@ use crossbeam::channel;
 use parking_lot::FairMutex;
 use rusqlite::{params, Connection, Error as SQLError, Result as SQLResult, Row, ToSql, OpenFlags};
 use rusqlite::functions::FunctionFlags;
+use serde_json::{Result as JSONResult, Value as JSONValue};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
@@ -323,6 +324,7 @@ impl Engine {
 			)
 			SELECT
 				{},
+				semantic_hashes.hash,
 				grouped_tags.tags,
 				{} AS dist
 			FROM images
@@ -334,8 +336,6 @@ impl Engine {
 			ORDER BY dist ASC
 			LIMIT 100;
 		", SELECT_FIELDS, included_distance_hash, where_clause);
-		
-		println!("{}", &statement);
 
 		// Grab a read lock.
 		self.cached_search_results = {
@@ -351,6 +351,7 @@ impl Engine {
 					Ok(res) => Some(res),
 					_ => None
 				};
+				img.distance_from_query = row.get(10).ok();
 				Ok(img)
 			})?;
 
@@ -376,6 +377,12 @@ impl Engine {
 	}
 
 	pub fn query_by_image_hash_from_image(&mut self, indexed_image:&IndexedImage) {
+		if indexed_image.visual_hash.is_none() {
+			// TODO: Error-handling here.
+			eprintln!("TODO: IndexedImage is somehow missing a hash!");
+			return;
+		}
+
 		self.cached_search_results = None;
 
 		let debug_start_db_query = Instant::now();
@@ -383,10 +390,11 @@ impl Engine {
 		let mut stmt = conn.prepare(&format!(r#"
 			SELECT {}, semantic_hashes.hash, cosine_distance(?, semantic_hashes.hash) AS dist
 			FROM semantic_hashes
-			JOIN images images ON images.id = semantic_hashes.image_id
+			INNER JOIN images images ON images.id = semantic_hashes.image_id
 			WHERE dist < ?
 			ORDER BY dist ASC
-			LIMIT 100"#, SELECT_FIELDS)).expect("The query for query_by_image_hash_from_image is wrong! The developer messed up!");
+			LIMIT 100"#, SELECT_FIELDS
+		)).expect("The query for query_by_image_hash_from_image is wrong! The developer messed up!");
 		let img_cursor = stmt.query_map(params![indexed_image.visual_hash, self.max_distance_from_query], |row|{
 			let mut img = indexed_image_from_row(row).expect("Unable to unwrap result from database");
 			img.visual_hash = Some(row.get(8)?);
@@ -394,12 +402,7 @@ impl Engine {
 			Ok(img)
 		}).unwrap();
 
-		self.cached_search_results = Some(img_cursor.map(|item|{
-			match item {
-				Err(problem) => panic!("Problem unwrapping result from database: {:?}", problem),
-				Ok(res) => res
-			}
-		}).collect());
+		self.cached_search_results = Some(img_cursor.flat_map(|item| item).collect());
 		let debug_end_db_query = Instant::now();
 		
 		let result_count = self.cached_search_results.as_ref().unwrap().len();
