@@ -1,3 +1,4 @@
+use std::ops::Mul;
 use crate::{AppTab, MainApp};
 use crate::ui::load_image_from_path;
 use eframe::{egui, epi};
@@ -38,14 +39,25 @@ pub fn view_panel(
 		//app_state.full_image = Some(RetainedImage::)
 	}
 
-	ui.horizontal(|ui|{
-
+	ui.vertical(|ui|{
+		ui.label(format!("Filename: {}", selected_image.filename));
+		ui.label(format!("Path: {}", selected_image.path));
+		ui.label(format!("Size: {}x{}", selected_image.resolution.0, selected_image.resolution.1));
+		ui.label("EXIF Tags:");
+		dbg!(&selected_image.tags);
+		for (k, v) in &selected_image.tags {
+			ui.label(format!("{}: {}", k, v));
+		}
 	});
 
 	if let Some(tex) = &app_state.full_image {
-		// Show the image:
-		//ui.add(egui::Image::new(texture, texture.size_vec2()));
-		// Same:
-		ui.image(tex, tex.size_vec2());
+		egui::ScrollArea::both()
+			.auto_shrink([false, false])
+			.show(ui, |ui| {
+				// Show the image:
+				//ui.add(egui::Image::new(texture, texture.size_vec2()));
+				// Same:
+				ui.image(tex, tex.size_vec2()*1.0f32);
+			});
 	}
 }
