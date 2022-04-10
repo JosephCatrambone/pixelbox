@@ -73,22 +73,15 @@ impl epi::App for MainApp {
 			ui::menutabs::navigation(self, ui);
 		});
 
-		egui::CentralPanel::default().show(ctx, |ui|{
-			if let Some(engine) = &mut self.engine {
-				match self.active_tab {
-					AppTab::Start => {
-					
-					},
-					AppTab::Search => {
-						ui::search::search_panel(self, ui);
-					},
-					AppTab::Folders => {
-						ui::folders::folder_panel(engine, ctx, ui);
-					},
-					_ => (),
-				}
-			} else {
-				ui::start::start_panel(ui);
+		egui::CentralPanel::default().show(ctx, |ui| {
+			match (&mut self.engine, &self.active_tab) {
+				// If the engine is unloaded or we somehow get back to the start tab...
+				(None, _) => ui::start::start_panel(ui),
+				(_, AppTab::Start) => ui::start::start_panel(ui),
+				// If the engine is loaded...
+				(Some(_), AppTab::Search) => ui::search::search_panel(self, ui),
+				(Some(engine), AppTab::Folders) => ui::folders::folder_panel(engine, ctx, ui),
+				(Some(_), _) => ()
 			}
 		});
 	}
