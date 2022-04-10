@@ -11,6 +11,7 @@ use engine::Engine;
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
+use egui_extras::RetainedImage;
 
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
@@ -38,6 +39,8 @@ pub struct MainApp {
 
 	// View Tab:
 	selected_image: Option<IndexedImage>, // Should we move this into the enum?
+	full_image_path: String,
+	full_image: Option<egui::TextureHandle>,
 
 	// Explore Tab:
 
@@ -59,6 +62,8 @@ impl Default for MainApp {
 			current_page: 0u64,
 
 			selected_image: None,
+			full_image_path: "".to_string(),
+			full_image: None,
 		}
 	}
 }
@@ -81,6 +86,7 @@ impl epi::App for MainApp {
 				// If the engine is loaded...
 				(Some(_), AppTab::Search) => ui::search::search_panel(self, ui),
 				(Some(engine), AppTab::Folders) => ui::folders::folder_panel(engine, ctx, ui),
+				(Some(_), AppTab::View) => ui::view::view_panel(self, ui),
 				(Some(_), _) => ()
 			}
 		});
