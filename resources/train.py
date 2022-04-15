@@ -34,6 +34,7 @@ def build_model(latent_space: int):
 		torch.nn.AvgPool2d(3),
 		torch.nn.Flatten(),
 		torch.nn.Linear(in_features=10368, out_features=1024),
+		torch.nn.Linear(in_features=1024, out_features=1024),
 		torch.nn.Linear(in_features=1024, out_features=latent_space),
 		torch.nn.Tanh()
 	)
@@ -168,7 +169,7 @@ def main():
 		BATCH_SIZE=32,
 		DATA_PATH="/home/joseph/512/",
 		ARCHITECTURE=str(model),
-                NOTES="""Using -1, 1 for cosine distance again.  Switching to the full webimage 512 dataset with 1.7M images.""",
+		NOTES="""New dataset has made the model much more selective, but recall is a little lower.  Trying an extra dense layer.  Next, I think we should omit the tanh output to see if we get a distribution in an n-dimensional hyperspace instead of on the surface of a hypersphere.""",
 		TRAINING_LOSSES=[],
 	)
 	log_timestamp = datetime.strftime(datetime.now(), "%Y%m%d%H%M%S")
