@@ -317,9 +317,9 @@ impl Engine {
 
 		let mut statement = format!("
 			WITH grouped_tags AS (
-				SELECT tags.image_id, JSON(JSON_GROUP_ARRAY(JSON_OBJECT(
+				SELECT tags.image_id, JSON(JSON_GROUP_OBJECT(
 					tags.name, tags.value
-				))) as tags
+				)) as tags
 				FROM tags
 				GROUP BY tags.image_id
 			)
@@ -353,6 +353,7 @@ impl Engine {
 				let maybe_tag_data: SQLResult<JSONValue> = row.get(9);
 				if let Ok(tag_data) = maybe_tag_data {
 					println!("TAG DATA: {}", &tag_data.to_string());
+					//tag_data.as_array()
 					// TODO: The returned JSON is a bit messy.  It's a Vec of single-key-single-value items.
 					// Example: "[{\"ImageWidth\":\"2592\"},{\"BitsPerSample\":\"8, 8, 8\"},{\"YCbCrPositioning\":\"centered\"},{\"DateTimeOriginal\":\"2012-10-10 10:49:15\"},{\"DateTimeDigitized\":\"2002-12-08 12:00:00\"},{\"JPEGInterchangeFormatLength\":\"8663\"},...
 					// When we clean up the query we should clean up this method.

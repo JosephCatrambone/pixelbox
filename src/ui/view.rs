@@ -44,7 +44,6 @@ pub fn view_panel(
 		ui.label(format!("Path: {}", selected_image.path));
 		ui.label(format!("Size: {}x{}", selected_image.resolution.0, selected_image.resolution.1));
 		ui.label("EXIF Tags:");
-		dbg!(&selected_image.tags);
 		for (k, v) in &selected_image.tags {
 			ui.label(format!("{}: {}", k, v));
 		}
