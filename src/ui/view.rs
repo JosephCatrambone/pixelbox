@@ -4,6 +4,7 @@ use crate::ui::load_image_from_path;
 use eframe::{egui, epi};
 use eframe::egui::{Context, TextureHandle, Ui};
 use std::path::Path;
+use crate::egui::Color32;
 
 // Still TODO:
 // If the image isn't found or can't be read, this will try to re-load it every frame.
@@ -44,11 +45,27 @@ pub fn view_panel(
 		ui.label(format!("Path: {}", selected_image.path));
 		ui.label(format!("Size: {}x{}", selected_image.resolution.0, selected_image.resolution.1));
 		ui.label("EXIF Tags:");
-		for (k, v) in &selected_image.tags {
-			ui.label(format!("{}: {}", k, v));
-		}
+		ui.horizontal_wrapped(|ui| {
+			// These are equivalent.
+			// ui.label(RichText::new("Text can have").color(Color32::from_rgb(110, 255, 110)));
+			// ui.colored_label(Color32::from_rgb(128, 140, 255), "color");
+			for (k, v) in &selected_image.tags {
+				let mut v_short = v.clone();
+				v_short.truncate(256);
+				ui.colored_label(Color32::LIGHT_GRAY, k);
+				ui.colored_label(Color32::LIGHT_BLUE, v_short).on_hover_text(v);
+			}
+		});
 	});
 
+	// Show zoom rocker.
+	ui.horizontal(|ui|{
+		if ui.button("-").clicked() { app_state.zoom_level = (app_state.zoom_level - 0.1).max(0.1f32 ); }
+		if ui.button(format!("{}%", (app_state.zoom_level*100.0) as u32)).clicked() { app_state.zoom_level = 1.0f32; };
+		if ui.button("+").clicked() { app_state.zoom_level += 0.1; }
+	});
+
+	// Show image.
 	if let Some(tex) = &app_state.full_image {
 		egui::ScrollArea::both()
 			.auto_shrink([false, false])
@@ -56,7 +73,7 @@ pub fn view_panel(
 				// Show the image:
 				//ui.add(egui::Image::new(texture, texture.size_vec2()));
 				// Same:
-				ui.image(tex, tex.size_vec2()*1.0f32);
+				ui.image(tex, tex.size_vec2()*app_state.zoom_level);
 			});
 	}
 }
