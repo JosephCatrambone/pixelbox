@@ -352,11 +352,6 @@ impl Engine {
 				img.tags = HashMap::new();
 				let maybe_tag_data: SQLResult<JSONValue> = row.get(9);
 				if let Ok(tag_data) = maybe_tag_data {
-					println!("TAG DATA: {}", &tag_data.to_string());
-					//tag_data.as_array()
-					// TODO: The returned JSON is a bit messy.  It's a Vec of single-key-single-value items.
-					// Example: "[{\"ImageWidth\":\"2592\"},{\"BitsPerSample\":\"8, 8, 8\"},{\"YCbCrPositioning\":\"centered\"},{\"DateTimeOriginal\":\"2012-10-10 10:49:15\"},{\"DateTimeDigitized\":\"2002-12-08 12:00:00\"},{\"JPEGInterchangeFormatLength\":\"8663\"},...
-					// When we clean up the query we should clean up this method.
 					if let Some(map_obj) = tag_data.as_object() {
 						for (k, v) in map_obj.iter() {
 							img.tags.insert(k.to_string(), v.to_string());

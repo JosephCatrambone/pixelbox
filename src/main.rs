@@ -41,6 +41,7 @@ pub struct MainApp {
 	selected_image: Option<IndexedImage>, // Should we move this into the enum?
 	full_image_path: String,
 	full_image: Option<egui::TextureHandle>,
+	zoom_level: f32,
 
 	// Explore Tab:
 
@@ -64,6 +65,7 @@ impl Default for MainApp {
 			selected_image: None,
 			full_image_path: "".to_string(),
 			full_image: None,
+			zoom_level: 1.0f32,
 		}
 	}
 }
