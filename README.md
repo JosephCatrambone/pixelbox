@@ -33,3 +33,22 @@ PixelBox is still pre-alpha.  Database schema and feature prioritization are sub
 * Face search
 * Search on image contents in plaintext
 * Watched directories via notify crate
+
+### Project Structure
+
+* .github - Links to demo pictures for readme and, eventually, CI/GitHub Action build scripts
+* models - The final ONNX files to be used by the application for visual similarity
+* resources - Non-shipped experiment logs and python training files
+* src - The main application code
+  * image_hashes - Wrappers for different image hashing methods
+  * ui - Code for each of the major UI panels like search view, folder view, etc.
+
+### Using Your Own Image Hash
+
+PixelBox's search uses the cosine distance between byte-quantified n-dimensional floats.
+For example, if you represent your image as [-1.0, 1.0, 0.0, 0.1] then this will be mapped to a 4-byte vector of [0x00, 0xFF, 0x80, 0x8C].
+
+There are two ways to use your own image hash methods:
+
+1) Replace the encoder_cpu.onnx file with your own trained model.  The inputs should be channel-first 128x128 RGB images and the outputs should be a 1D vector of floats between -1 and 1.  See image_hashes/convnet.rs for constraints.
+2) Replace the 'hash' in the 'semantic_hash' table of your database.  This should be an array of u8s as described above.  You will not be able to drag-and-drop images for search if using this approach, but after finding a seed image you can right-click and do 'find similar'.
