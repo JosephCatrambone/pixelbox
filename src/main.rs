@@ -89,6 +89,7 @@ impl epi::App for MainApp {
 				(Some(_), AppTab::Search) => ui::search::search_panel(self, ui),
 				(Some(engine), AppTab::Folders) => ui::folders::folder_panel(engine, ctx, ui),
 				(Some(_), AppTab::View) => ui::view::view_panel(self, ui),
+				(Some(_), AppTab::Settings) => ui::settings::settings_panel(self, ui),
 				(Some(_), _) => ()
 			}
 		});

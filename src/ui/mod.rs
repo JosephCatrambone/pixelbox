@@ -1,5 +1,6 @@
 pub mod menutabs;
 pub mod search;
+pub mod settings;
 pub mod start;
 pub mod folders;
 pub mod view;

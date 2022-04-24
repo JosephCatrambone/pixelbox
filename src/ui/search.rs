@@ -33,7 +33,7 @@ pub fn search_panel(
 		}
 		
 		// Universal Search
-		if ui.text_edit_singleline(&mut app_state.search_text).changed() {
+		if ui.text_edit_singleline(&mut app_state.search_text).changed() && app_state.search_text.len() > 3 {
 			let query_success = app_state.engine.as_mut().unwrap().query(&app_state.search_text.clone());
 			if let Err(q) = query_success {
 				app_state.query_error = q.to_string();
