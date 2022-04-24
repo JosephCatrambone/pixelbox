@@ -3,13 +3,14 @@
 
 ---
 
-![Image](../blob/main/.github/images/demo_text_search.png?raw=true)
+![Demo Screenshot - Filename Search](https://github.com/JosephCatrambone/pixelbox/blob/main/.github/images/demo_text_search.png?raw=true)
 
 PixelBox is still pre-alpha.  Database schema and feature prioritization are subject to change.
 
 ### Features
 * Cross-platform (Windows, Linux, MacOS) and FOSS
 * Search across filenames and exif tags
+* Drag and drop search for visually similar images
 * Fast parallel indexing of images
 * User-moddable image similarity engine (!)
 * Portable and inspectable database format
