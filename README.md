@@ -24,7 +24,6 @@ PixelBox is still pre-alpha.  Database schema and feature prioritization are sub
 ### TODOs
 * Compress thumbnails in database
 * Index inside of zip files
-* Don't search on fewer than two characters
 * Remove from index on folder clear
 * Better similarity search
 * Start removing those unwraps
