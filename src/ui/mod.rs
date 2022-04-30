@@ -33,14 +33,15 @@ fn load_image_from_memory(image_data: &[u8]) -> Result<ColorImage, image::ImageE
 }
 
 fn indexed_image_to_egui_colorimage(indexed_image: &IndexedImage, alpha_fill:u8) -> ColorImage {
-	let num_pixels = indexed_image.thumbnail_resolution.0 * indexed_image.thumbnail_resolution.1;
+	let (thumbnail_data, thumbnail_resolution) = indexed_image.get_thumbnail();
+	let num_pixels = thumbnail_resolution.0 * thumbnail_resolution.1;
 	let mut new_vec = Vec::with_capacity((num_pixels / 3 * 4) as usize);
-	indexed_image.thumbnail.chunks(3).for_each(|p|{
+	thumbnail_data.chunks(3).for_each(|p|{
 		new_vec.extend(p);
 		new_vec.push(alpha_fill);
 	});
 	ColorImage::from_rgba_unmultiplied(
-		[indexed_image.thumbnail_resolution.0 as usize, indexed_image.thumbnail_resolution.1 as usize],
+		[thumbnail_resolution.0 as usize, thumbnail_resolution.1 as usize],
 		new_vec.as_slice()
 	)
 }

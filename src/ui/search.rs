@@ -61,7 +61,8 @@ pub fn search_panel(
 						ui.horizontal(|ui|{
 							let tex_id = fetch_or_generate_thumbnail(res, &mut app_state.image_id_to_texture_handle, ui.ctx());
 
-							ui.image(&tex_id, [res.thumbnail_resolution.0 as f32, res.thumbnail_resolution.1 as f32]).context_menu(|ui|{
+							// Note: thumbnail size != image size.  We might want to show them off as larger or smaller.
+							ui.image(&tex_id, [app_state.thumbnail_size.0 as f32, app_state.thumbnail_size.1 as f32]).context_menu(|ui|{
 								if ui.button("Open").clicked() {
 									//let _ = std::process::Command::new("open").arg(&res.path).output();
 									open::that(&res.path);
