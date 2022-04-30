@@ -21,12 +21,15 @@ PixelBox is still pre-alpha.  Database schema and feature prioritization are sub
 * Torch for training the image similarity model
 * ONNX for running the similarity model
 
-### TODOs
-* Compress thumbnails in database
-* Index inside of zip files
+### TODOs for Alpha Release
+* ~~Compress thumbnails in database~~ [DONE 2022/04/30 - 2x Compression for No Loss in Speed]
 * Remove from index on folder clear
-* Better similarity search
 * Start removing those unwraps
+* Settings Page
+ 
+### TODOs for Roadmap
+* Index inside of zip files
+* Better similarity search
 * OCR for images (search on text in images)
 * Editable tags
 * Face search
