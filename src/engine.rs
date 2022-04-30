@@ -557,7 +557,7 @@ fn build_where_clause_from_parsed_query(tokens: &Vec<String>, mut cached_similar
 				}
 			}
 
-			if magic_prefix.eq("exif") {
+			if magic_prefix.eq("exif") || magic_prefix.eq("tag") {
 				// Split the remaining into tag and target.
 				// If there's no ':' then search both.
 				if let Some((tag, target)) = remaining.split_once(":") {
@@ -567,13 +567,18 @@ fn build_where_clause_from_parsed_query(tokens: &Vec<String>, mut cached_similar
 				}
 			}
 
+			if magic_prefix.eq("all") {
+				// Search for this value in EVERY field.
+				// TODO: We should use '?', though it's not a security vulnerability because it's a strictly local DB.
+				and_where_clauses.push(format!(" (tags.value LIKE '%{}%' OR images.filename LIKE '%{}%' OR images.path LIKE '%{}%') ", &remaining, &remaining, &remaining));
+			}
+
+			// We default to filename but want to handle the case where the person explicitly searches for it.
 			if magic_prefix.eq("filename") {
-				and_where_clauses.push(format!("images.filename LIKE '%{}%'", &remaining));
+				and_where_clauses.push(format!("images.filename LIKE '%{}%'", &token));
 			}
 		} else {
-			// Search for this value in EVERY field.
-			// TODO: We should use '?', though it's not a security vulnerability because it's a strictly local DB.
-			and_where_clauses.push(format!(" (tags.value LIKE '%{}%' OR images.filename LIKE '%{}%' OR images.path LIKE '%{}%') ", token, token, token));
+			and_where_clauses.push(format!("images.filename LIKE '%{}%'", &token));
 		}
 	}
 
