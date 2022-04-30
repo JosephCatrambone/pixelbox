@@ -9,6 +9,7 @@ pub fn settings_panel(
 	ui.vertical(|ui|{
 		ui.checkbox(&mut app_state.dark_mode, "Dark Mode");
 		ui.add(egui::Slider::new(&mut app_state.search_text_min_length, 0..=255).text("Minimum Search Length")).on_hover_text("A search is automatically run when at least this many characters are entered into the search bar.  Be wary that 0 (match any letter) could slow down performance.");
+		ui.add(egui::Slider::new(&mut app_state.thumbnail_size, 0..=255).text("Thumbnail Size"));
 
 		if let Some(engine) = &mut app_state.engine {
 			ui.add(egui::Slider::new(&mut engine.max_search_results, 0..=10000).text("Max Search Results")).on_hover_text("How many results will be shown during a search.  A high number will use more memory and may take longer to run.");

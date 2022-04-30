@@ -32,7 +32,7 @@ pub struct MainApp {
 	// Start Tab:
 	
 	// Search Tab:
-	thumbnail_size: (u32, u32),
+	thumbnail_size: u8,
 	search_text_min_length: u8,
 	search_text: String,
 	query_error: String,
@@ -59,7 +59,7 @@ impl Default for MainApp {
 			active_tab: AppTab::Start,
 			image_id_to_texture_handle: HashMap::new(),
 
-			thumbnail_size: (128, 128),
+			thumbnail_size: 128,
 			search_text_min_length: 2,
 			search_text: "".to_string(),
 			query_error: "".to_string(),
