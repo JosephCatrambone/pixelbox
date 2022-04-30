@@ -33,6 +33,7 @@ pub struct MainApp {
 	
 	// Search Tab:
 	thumbnail_size: (u32, u32),
+	search_text_min_length: u8,
 	search_text: String,
 	query_error: String,
 	some_value: f32,
@@ -47,7 +48,7 @@ pub struct MainApp {
 	// Explore Tab:
 
 	// Settings Tab:
-
+	dark_mode: bool,
 
 }
 
@@ -59,6 +60,7 @@ impl Default for MainApp {
 			image_id_to_texture_handle: HashMap::new(),
 
 			thumbnail_size: (128, 128),
+			search_text_min_length: 2,
 			search_text: "".to_string(),
 			query_error: "".to_string(),
 			some_value: 1.0f32,
@@ -68,6 +70,8 @@ impl Default for MainApp {
 			full_image_path: "".to_string(),
 			full_image: None,
 			zoom_level: 1.0f32,
+
+			dark_mode: true,
 		}
 	}
 }
@@ -75,7 +79,7 @@ impl Default for MainApp {
 impl epi::App for MainApp {
 	fn update(&mut self, ctx: &egui::Context, frame: &epi::Frame) {
 		// Enforce dark mode.
-		ctx.set_visuals(egui::Visuals::dark());
+		ctx.set_visuals(if self.dark_mode { egui::Visuals::dark() } else { egui::Visuals::light() });
 
 		// Display UI tabs:
 		egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {

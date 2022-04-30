@@ -33,7 +33,7 @@ pub fn search_panel(
 		}
 		
 		// Universal Search
-		if ui.text_edit_singleline(&mut app_state.search_text).changed() && app_state.search_text.len() > 3 {
+		if ui.text_edit_singleline(&mut app_state.search_text).changed() && app_state.search_text.len() > app_state.search_text_min_length as usize {
 			let query_success = app_state.engine.as_mut().unwrap().query(&app_state.search_text.clone());
 			if let Err(q) = query_success {
 				app_state.query_error = q.to_string();
@@ -84,6 +84,7 @@ pub fn search_panel(
 								ui.label(format!("Filename: {}", res.filename));
 								ui.label(format!("Path: {}", res.path));
 								ui.label(format!("Similarity: {}", 1.0f64 / (1.0f64+res.distance_from_query.unwrap_or(1e10f64))));
+								ui.label(format!("Distance: {}", res.distance_from_query.unwrap_or(1e3f64)));
 								ui.label(format!("Size: {}x{}", res.resolution.0, res.resolution.1));
 							});
 						});
