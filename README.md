@@ -22,10 +22,10 @@ PixelBox is still pre-alpha.  Database schema and feature prioritization are sub
 * ONNX for running the similarity model
 
 ### TODOs for Alpha Release
-* ~~Compress thumbnails in database~~ [DONE 2022/04/30 - 2x Compression for No Loss in Speed]
-* Remove from index on folder clear
+* ~~Compress thumbnails in database~~ [DONE - 2x Compression for No Loss in Speed]
+* ~~Remove from index on folder clear~~ [DONE]
+* ~~Settings Page~~ [DONE]
 * Start removing those unwraps
-* Settings Page
  
 ### TODOs for Roadmap
 * Index inside of zip files
@@ -35,6 +35,7 @@ PixelBox is still pre-alpha.  Database schema and feature prioritization are sub
 * Face search
 * Search on image contents in plaintext
 * Watched directories via notify crate
+* If a model is unavailable, don't perform image hash and just disable similarity search so people can use it for just tags
 
 ### Project Structure
 
@@ -45,7 +46,7 @@ PixelBox is still pre-alpha.  Database schema and feature prioritization are sub
   * image_hashes - Wrappers for different image hashing methods
   * ui - Code for each of the major UI panels like search view, folder view, etc.
 
-### Using Your Own Image Hash
+### Using Your Own Image Hash (Advanced)
 
 PixelBox's search uses the cosine distance between byte-quantified n-dimensional floats.
 For example, if you represent your image as [-1.0, 1.0, 0.0, 0.1] then this will be mapped to a 4-byte vector of [0x00, 0xFF, 0x80, 0x8C].

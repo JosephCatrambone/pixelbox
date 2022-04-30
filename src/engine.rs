@@ -25,7 +25,8 @@ type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 type JSONMap = HashMap<String, JSONValue>;
 
 const PARALLEL_FILE_PROCESSORS: usize = 8;
-const DEFAULT_MAX_QUERY_DISTANCE: f64 = 1e6; // f64 implements ToSql in SQLite. f32 doesn't.
+const DEFAULT_MAX_QUERY_DISTANCE: f64 = 1e3; // f64 implements ToSql in SQLite. f32 doesn't.
+const DEFAULT_MAX_SEARCH_RESULTS: u64 = 100;
 const MAX_PENDING_FILEPATHS: usize = 1000;
 
 //
@@ -92,7 +93,8 @@ pub struct Engine {
 	cached_index_size: Option<usize>, // Number of indexed images.
 
 	// Searching and filtering.
-	max_distance_from_query: f64,
+	pub max_search_results: u64,
+	pub max_distance_from_query: f64,
 	cached_search_results: Option<Vec<IndexedImage>>,  // For keeping track of the last time a query ran.
 	cached_image_search: Option<IndexedImage>, // If the user is searching for a similar image: "similar:abc", this is the path.  We should compare when the abc changes.
 }
@@ -133,7 +135,8 @@ impl Engine {
 			last_indexed: vec![],
 			watched_directories_cache: None,
 			cached_index_size: None,
-			
+
+			max_search_results: 100,
 			max_distance_from_query: DEFAULT_MAX_QUERY_DISTANCE,
 			cached_search_results: None,
 			cached_image_search: None,
