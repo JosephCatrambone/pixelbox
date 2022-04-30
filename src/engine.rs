@@ -39,8 +39,6 @@ const IMAGE_SCHEMA_V1: &'static str = "CREATE TABLE images (
 	image_width      INTEGER,
 	image_height     INTEGER,
 	thumbnail        BLOB,
-	thumbnail_width  INTEGER,
-	thumbnail_height INTEGER,
 	created          DATETIME,
 	indexed          DATETIME
 )";
@@ -59,14 +57,12 @@ const SELECT_FIELDS: &'static str = "
 	images.path,
 	images.image_width,
 	images.image_height,
-	images.thumbnail,
-	images.thumbnail_width,
-	images.thumbnail_height
+	images.thumbnail
 ";
 // End Schemas
 
 // We should implement try_from_row for this.
-// The last entry is seven, so tags or hashes start at row.get(8).
+// The last entry is seven, so tags or hashes start at row.get(6).
 fn indexed_image_from_row(row: &Row) -> SQLResult<IndexedImage> {
 	Ok(IndexedImage {
 		id: row.get(0)?,
@@ -74,9 +70,8 @@ fn indexed_image_from_row(row: &Row) -> SQLResult<IndexedImage> {
 		path: row.get(2)?,
 		resolution: (row.get(3)?, row.get(4)?),
 		thumbnail: row.get(5)?,
-		thumbnail_resolution: (row.get(6)?, row.get(7)?),
-		created: Instant::now(), //row.get(8)?
-		indexed: Instant::now(), //row.get(9)?
+		created: Instant::now(), //row.get(6)?
+		indexed: Instant::now(), //row.get(7)?
 		tags: HashMap::new(),
 		phash: None,
 		visual_hash: None,
@@ -252,8 +247,8 @@ impl Engine {
 	fn insert_image(conn: &mut Connection, mut img:IndexedImage) -> Result<()> {
 		// Update the images table first...
 		conn.execute(
-			"INSERT INTO images (filename, path, image_width, image_height, thumbnail, thumbnail_width, thumbnail_height) VALUES (?, ?, ?, ?, ?, ?, ?)",
-			params![img.filename, img.path, img.resolution.0, img.resolution.1, img.thumbnail, img.thumbnail_resolution.0, img.thumbnail_resolution.1]
+			"INSERT INTO images (filename, path, image_width, image_height, thumbnail) VALUES (?, ?, ?, ?, ?)",
+			params![img.filename, img.path, img.resolution.0, img.resolution.1, img.thumbnail,]
 		)?;
 		img.id = conn.last_insert_rowid();
 
@@ -348,9 +343,9 @@ impl Engine {
 			// Parse and process results.
 			let result_cursor = prepared_statement.query_map(params![], |row| {
 				let mut img = indexed_image_from_row(row).expect("Unable to decode image in database.");
-				img.visual_hash = row.get(8).ok();
+				img.visual_hash = row.get(6).ok();
 				img.tags = HashMap::new();
-				let maybe_tag_data: SQLResult<JSONValue> = row.get(9);
+				let maybe_tag_data: SQLResult<JSONValue> = row.get(7);
 				if let Ok(tag_data) = maybe_tag_data {
 					if let Some(map_obj) = tag_data.as_object() {
 						for (k, v) in map_obj.iter() {
@@ -358,7 +353,7 @@ impl Engine {
 						}
 					}
 				}
-				img.distance_from_query = row.get(10).ok();
+				img.distance_from_query = row.get(8).ok();
 				Ok(img)
 			})?;
 
@@ -404,8 +399,8 @@ impl Engine {
 		)).expect("The query for query_by_image_hash_from_image is wrong! The developer messed up!");
 		let img_cursor = stmt.query_map(params![indexed_image.visual_hash, self.max_distance_from_query], |row|{
 			let mut img = indexed_image_from_row(row).expect("Unable to unwrap result from database");
-			img.visual_hash = Some(row.get(8)?);
-			img.distance_from_query = Some(row.get(9)?);
+			img.visual_hash = Some(row.get(6)?);
+			img.distance_from_query = Some(row.get(7)?);
 			Ok(img)
 		}).unwrap();
 

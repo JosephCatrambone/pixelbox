@@ -21,7 +21,6 @@ pub struct IndexedImage {
 	pub path: String,
 	pub resolution: (u32, u32),
 	pub thumbnail: Vec<u8>,
-	pub thumbnail_resolution: (u32, u32),
 	pub created: Instant,
 	pub indexed: Instant,
 
@@ -40,6 +39,9 @@ impl IndexedImage {
 		//let mut img = image::io::Reader::new(&mut image_buffer).decode()?;
 
 		let thumb = img.thumbnail(THUMBNAIL_SIZE.0, THUMBNAIL_SIZE.1).to_rgb8();
+		let thumbnail_width = thumb.width();
+		let thumbnail_height = thumb.height();
+		let qoi_thumb = qoi::encode_to_vec(&thumb.into_raw(), thumbnail_width, thumbnail_height).expect("Unable to generate compressed thumbnail.");
 
 		// Also parse the EXIF data.
 		// TODO: I wish we didn't need to re-read the file.  :|
@@ -62,8 +64,7 @@ impl IndexedImage {
 				filename: path.file_name().unwrap().to_str().unwrap().to_string(),
 				path: stringify_filepath(path),
 				resolution: (img.width(), img.height()),
-				thumbnail: thumb.to_vec(),
-				thumbnail_resolution: (thumb.width(), thumb.height()),
+				thumbnail: qoi_thumb,
 				created: Instant::now(),
 				indexed: Instant::now(),
 
@@ -75,6 +76,11 @@ impl IndexedImage {
 				distance_from_query: None,
 			}
 		)
+	}
+
+	pub fn get_thumbnail(&self) -> (Vec<u8>, (u32, u32)) {
+		let (header, data) = qoi::decode_to_vec(&self.thumbnail).expect("Failed to decode thumbnail.");
+		(data, (header.width, header.height))
 	}
 }
 
