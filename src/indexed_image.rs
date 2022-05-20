@@ -2,11 +2,12 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
-use std::io::{BufReader, Cursor, Read, BufRead};
+use std::io::{BufReader, Cursor, Read, BufRead, Seek};
 use std::time::Instant;
 use std::path::Path;
 //use exif::{Field, Exif, };
-use image::{ImageError, GenericImageView, DynamicImage};
+use image::{ImageError, GenericImageView, DynamicImage, ImageFormat};
+use tract_onnx::prelude::tract_itertools::Itertools;
 
 use crate::image_hashes::phash;
 use crate::image_hashes::mlhash;
@@ -37,7 +38,7 @@ impl IndexedImage {
 	pub fn from_file_path(path:&Path) -> Result<Self> {
 		let mut file = File::open(path)?;
 		let mut bytes = vec![];
-		let _bytes_read = file.read(bytes.as_mut_slice())?;
+		let _bytes_read = file.read_to_end(&mut bytes)?;
 		//let mut img = image::io::Reader::new(&mut image_buffer).decode()?;
 
 		let filename:String = path.file_name().unwrap().to_str().unwrap().to_string();
@@ -47,18 +48,22 @@ impl IndexedImage {
 	}
 
 	pub fn from_memory(bytes:&mut Vec<u8>, filename:String, path:String) -> Result<Self> {
+		let mut cursor = Cursor::new(bytes);
+
 		//let mut img = image::open(path)?;
-		let mut img:DynamicImage = image::load_from_memory(bytes)?;
+		//let mut img:DynamicImage = image::load_from_memory(bytes)?;
+		//let mut img:DynamicImage = image::load_from_memory_with_format(bytes.as_slice(), ImageFormat::from_path(&path)?)?;
+		let mut img:DynamicImage = image::io::Reader::new(&mut cursor).with_guessed_format()?.decode()?;
 		let thumb = img.thumbnail(THUMBNAIL_SIZE.0, THUMBNAIL_SIZE.1).to_rgb8();
 		let thumbnail_width = thumb.width();
 		let thumbnail_height = thumb.height();
 		let qoi_thumb = qoi::encode_to_vec(&thumb.into_raw(), thumbnail_width, thumbnail_height).expect("Unable to generate compressed thumbnail.");
 
 		// Also parse the EXIF data.
-		let mut bufread = Cursor::new(bytes);
+		cursor.seek(std::io::SeekFrom::Start(0));
 		let mut tags = HashMap::<String, String>::new();
 		let mut exifreader = exif::Reader::new();
-		if let Ok(exif) = exifreader.read_from_container(&mut bufread) {
+		if let Ok(exif) = exifreader.read_from_container(&mut cursor) {
 			for field in exif.fields() {
 				tags.insert(field.tag.to_string(), field.display_value().to_string());
 			}
