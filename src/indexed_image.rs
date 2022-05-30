@@ -18,8 +18,9 @@ pub const THUMBNAIL_SIZE: (u32, u32) = (256, 256);
 #[derive(Clone, Debug)]
 pub struct IndexedImage {
 	pub id: i64,
-	pub filename: String,
+	pub filename: String, // This is for display and search, not for actually opening the file.
 	pub path: String,
+	pub container_path: String, // "" by default, but if the image is inside of a zipfile, this will be the path to the zipfile.
 	pub resolution: (u32, u32),
 	pub thumbnail: Vec<u8>,
 	pub created: Instant,
@@ -77,6 +78,7 @@ impl IndexedImage {
 				id: 0,
 				filename: filename,
 				path: path,
+				container_path: "".to_owned(),
 				resolution: (img.width(), img.height()),
 				thumbnail: qoi_thumb,
 				created: Instant::now(),
