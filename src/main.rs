@@ -1,4 +1,3 @@
-
 mod crawler;
 mod engine;
 mod image_hashes;
@@ -6,7 +5,7 @@ mod indexed_image;
 mod ui;
 
 use crate::indexed_image::{IndexedImage, THUMBNAIL_SIZE};
-use eframe::{egui, epi, NativeOptions};
+use eframe::{egui, self, NativeOptions};
 use engine::Engine;
 use std::collections::HashMap;
 use std::path::Path;
@@ -76,8 +75,8 @@ impl Default for MainApp {
 	}
 }
 
-impl epi::App for MainApp {
-	fn update(&mut self, ctx: &egui::Context, frame: &epi::Frame) {
+impl eframe::App for MainApp {
+	fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
 		// Enforce dark mode.
 		ctx.set_visuals(if self.dark_mode { egui::Visuals::dark() } else { egui::Visuals::light() });
 
@@ -100,10 +99,6 @@ impl epi::App for MainApp {
 			}
 		});
 	}
-
-	fn name(&self) -> &str {
-		"PixelBox Image Search"
-	}
 }
 
 
@@ -113,6 +108,11 @@ fn main() {
 		drag_and_drop_support: true,
 		..Default::default()
 	};
-	eframe::run_native(Box::new(app), options);
+	// This is a bit hacky.  We could probably get away with just
+	//eframe::run_native("PixelBox", options, Box::new(app);
+	eframe::run_native("PixelBox", options, Box::new(|ctx| {
+		egui_extras::install_image_loaders(&ctx.egui_ctx);
+		Box::<MainApp>::new(app)
+	}));
 }
 

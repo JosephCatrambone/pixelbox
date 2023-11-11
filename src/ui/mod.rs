@@ -7,11 +7,10 @@ pub mod view;
 
 use std::collections::HashMap;
 use eframe::egui;
-use eframe::egui::ColorImage;
+use eframe::egui::{ColorImage, TextureOptions};
 use eframe::egui::Ui;
 use egui_extras::RetainedImage;
 use image;
-use tract_onnx::prelude::tract_itertools::Itertools;
 
 use crate::indexed_image;
 use crate::indexed_image::IndexedImage;
@@ -53,7 +52,7 @@ pub fn fetch_or_generate_thumbnail(res: &IndexedImage, thumbnail_cache: &mut Has
 	match thumbnail_cache.get(&res.id) {
 		Some(tid) => tid.clone(),
 		None => {
-			let texture = ctx.load_texture(res.path.clone(), indexed_image_to_egui_colorimage(res, 255u8));
+			let texture = ctx.load_texture(res.path.clone(), indexed_image_to_egui_colorimage(res, 255u8), TextureOptions::LINEAR);
 			thumbnail_cache.insert(res.id, texture.clone());
 			texture
 		}

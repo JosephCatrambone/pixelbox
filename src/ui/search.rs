@@ -1,7 +1,7 @@
 use crate::{AppTab, MainApp};
 //use crate::engine::Engine;
 use crate::ui::{fetch_or_generate_thumbnail, paginate};
-use eframe::{egui, epi, NativeOptions};
+use eframe::{egui, NativeOptions};
 use eframe::egui::{Context, DroppedFile, TextureHandle, Ui};
 use rfd;
 use std::collections::HashMap;
@@ -60,9 +60,9 @@ pub fn search_panel(
 					results.iter().for_each(|res|{
 						ui.horizontal(|ui|{
 							let tex_id = fetch_or_generate_thumbnail(res, &mut app_state.image_id_to_texture_handle, ui.ctx());
-
+							
 							// Note: thumbnail size != image size.  We might want to show them off as larger or smaller.
-							ui.image(&tex_id, [app_state.thumbnail_size as f32, app_state.thumbnail_size as f32]).context_menu(|ui|{
+							ui.image(&tex_id).context_menu(|ui|{
 								if ui.button("Open").clicked() {
 									//let _ = std::process::Command::new("open").arg(&res.path).output();
 									open::that(&res.path);
@@ -97,7 +97,9 @@ pub fn search_panel(
 // Flagrantly stolen from the drag-and-drop documentation:
 // https://github.com/emilk/egui/blob/master/eframe/examples/file_dialog.rs#L67
 fn detect_files_being_dropped(ctx: &egui::Context) -> Option<Vec<DroppedFile>> {
+	// TODO: Needs updating for the latest version of egui.
 	// Preview hovering files:
+	/*
 	if !ctx.input().raw.hovered_files.is_empty() {
 		let mut text = "Dropping files:\n".to_owned();
 		for file in &ctx.input().raw.hovered_files {
@@ -123,11 +125,18 @@ fn detect_files_being_dropped(ctx: &egui::Context) -> Option<Vec<DroppedFile>> {
 			egui::Color32::WHITE,
 		);
 	}
+	*/
 
 	// Collect dropped files:
-	if !ctx.input().raw.dropped_files.is_empty() {
-		return Some(ctx.input().raw.dropped_files.clone());
+	let mut files = Vec::<DroppedFile>::new();
+	ctx.input(|i| {
+		if !i.raw.dropped_files.is_empty() {
+			files.append(&mut i.raw.dropped_files.clone());
+		}
+	});
+	if !files.is_empty() {
+		return Some(files);
 	}
-
+	
 	None
 }

@@ -9,8 +9,8 @@ edition = "2021"
 [dependencies]
 anyhow = "^1.0"  # For convenient Result types.  Can switch to Enums with inner-error captures later on.
 crossbeam = "0.8.1"
-eframe = "0.17.0" # Gives us egui, epi and web+native backends
-egui_extras = "0.17.0"
+eframe = "~0.23" # Gives us egui, epi and web+native backends
+egui_extras = "~0.23"
 glob = "0.3.0"
 image = "^0.24"
 kamadak-exif = "^0.5"
@@ -23,7 +23,6 @@ rfd = "^0.8"
 rusqlite = { version="^0.27", features=["bundled", "time", "functions", "serde_json"] } # bundled uses bundled version for Windows.  blob feature might be needed for io.
 serde = { version = "^1.0", features = ["derive"], optional = true }
 serde_json = "^1.0"
-tract-onnx = "0.15.8"
 zip = "^0.6"
 
 [dev-dependencies]
