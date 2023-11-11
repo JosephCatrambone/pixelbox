@@ -1,5 +1,5 @@
 use crate::{AppTab, MainApp};
-use eframe::{egui, epi, NativeOptions};
+use eframe::{egui, NativeOptions};
 use eframe::egui::{Context, DroppedFile, TextureHandle, Ui};
 
 pub fn settings_panel(

@@ -7,7 +7,6 @@ use std::time::Instant;
 use std::path::Path;
 //use exif::{Field, Exif, };
 use image::{ImageError, GenericImageView, DynamicImage, ImageFormat};
-use tract_onnx::prelude::tract_itertools::Itertools;
 
 use crate::image_hashes::phash;
 use crate::image_hashes::mlhash;

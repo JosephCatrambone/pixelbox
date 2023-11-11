@@ -1,8 +1,8 @@
 use std::ops::Mul;
 use crate::{AppTab, MainApp};
 use crate::ui::load_image_from_path;
-use eframe::{egui, epi};
-use eframe::egui::{Context, TextureHandle, Ui};
+use eframe::{egui};
+use eframe::egui::{Context, TextureHandle, TextureOptions, Ui};
 use std::path::Path;
 use crate::egui::Color32;
 
@@ -32,7 +32,7 @@ pub fn view_panel(
 		app_state.full_image_path = selected_image.path.clone();
 		app_state.full_image = {
 			if let Ok(img) = load_image_from_path(Path::new(&app_state.full_image_path)) {
-				Some(ui.ctx().load_texture(app_state.full_image_path.clone(), img))
+				Some(ui.ctx().load_texture(app_state.full_image_path.clone(), img, TextureOptions::LINEAR))
 			} else {
 				None
 			}
@@ -73,7 +73,7 @@ pub fn view_panel(
 				// Show the image:
 				//ui.add(egui::Image::new(texture, texture.size_vec2()));
 				// Same:
-				ui.image(tex, tex.size_vec2()*app_state.zoom_level);
+				ui.image(tex);
 			});
 	}
 }
