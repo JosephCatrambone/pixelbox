@@ -37,6 +37,7 @@ const IMAGE_SCHEMA_V1: &'static str = "CREATE TABLE images (
 	id               INTEGER PRIMARY KEY,
 	filename         TEXT NOT NULL,
 	path             TEXT NOT NULL,
+	container_path   TEXT NOT NULL,
 	image_width      INTEGER,
 	image_height     INTEGER,
 	thumbnail        BLOB,
@@ -56,6 +57,7 @@ const SELECT_FIELDS: &'static str = "
 	images.id,
 	images.filename,
 	images.path,
+	images.container_path,
 	images.image_width,
 	images.image_height,
 	images.thumbnail
@@ -69,10 +71,11 @@ fn indexed_image_from_row(row: &Row) -> SQLResult<IndexedImage> {
 		id: row.get(0)?,
 		filename: row.get(1)?,
 		path: row.get(2)?,
-		resolution: (row.get(3)?, row.get(4)?),
-		thumbnail: row.get(5)?,
-		created: Instant::now(), //row.get(6)?
-		indexed: Instant::now(), //row.get(7)?
+		container_path: row.get(3)?,
+		resolution: (row.get(4)?, row.get(5)?),
+		thumbnail: row.get(6)?,
+		created: Instant::now(), //row.get(7)?
+		indexed: Instant::now(), //row.get(8)?
 		tags: HashMap::new(),
 		phash: None,
 		visual_hash: None,
@@ -250,8 +253,8 @@ impl Engine {
 	fn insert_image(conn: &mut Connection, mut img:IndexedImage) -> Result<()> {
 		// Update the images table first...
 		conn.execute(
-			"INSERT INTO images (filename, path, image_width, image_height, thumbnail) VALUES (?, ?, ?, ?, ?)",
-			params![img.filename, img.path, img.resolution.0, img.resolution.1, img.thumbnail,]
+			"INSERT INTO images (filename, path, container_path, image_width, image_height, thumbnail) VALUES (?, ?, ?, ?, ?, ?)",
+			params![img.filename, img.path, img.container_path, img.resolution.0, img.resolution.1, img.thumbnail,]
 		)?;
 		img.id = conn.last_insert_rowid();
 
@@ -346,9 +349,9 @@ impl Engine {
 			// Parse and process results.
 			let result_cursor = prepared_statement.query_map(params![], |row| {
 				let mut img = indexed_image_from_row(row).expect("Unable to decode image in database.");
-				img.visual_hash = row.get(6).ok();
+				img.visual_hash = row.get(7).ok();
 				img.tags = HashMap::new();
-				let maybe_tag_data: SQLResult<JSONValue> = row.get(7);
+				let maybe_tag_data: SQLResult<JSONValue> = row.get(8);
 				if let Ok(tag_data) = maybe_tag_data {
 					if let Some(map_obj) = tag_data.as_object() {
 						for (k, v) in map_obj.iter() {
@@ -356,7 +359,7 @@ impl Engine {
 						}
 					}
 				}
-				img.distance_from_query = row.get(8).ok();
+				img.distance_from_query = row.get(9).ok();
 				Ok(img)
 			})?;
 
@@ -402,8 +405,8 @@ impl Engine {
 		)).expect("The query for query_by_image_hash_from_image is wrong! The developer messed up!");
 		let img_cursor = stmt.query_map(params![indexed_image.visual_hash, self.max_distance_from_query], |row|{
 			let mut img = indexed_image_from_row(row).expect("Unable to unwrap result from database");
-			img.visual_hash = Some(row.get(6)?);
-			img.distance_from_query = Some(row.get(7)?);
+			img.visual_hash = Some(row.get(7)?);
+			img.distance_from_query = Some(row.get(8)?);
 			Ok(img)
 		}).unwrap();
 
