@@ -19,24 +19,18 @@ DEVICE = torch.device("cuda")
 
 # Define our model.
 def build_model(latent_space: int):
+	enet = torchvision.models.efficientnet_b0()
+	for name, module in enet.named_modules():
+		if name == "features":
+			features = module
+	assert features is not None
+	poolfn = torch.nn.AdaptiveAvgPool2d(1)
 	model = torch.nn.Sequential(
-		torch.nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, stride=1, padding=1),
-		torch.nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1),
-		torch.nn.LeakyReLU(inplace=True),
-		torch.nn.AvgPool2d(3),
-		torch.nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1),
-		torch.nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1),
-		torch.nn.LeakyReLU(inplace=True),
-		torch.nn.AvgPool2d(3),
-		torch.nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1),
-		torch.nn.Conv2d(in_channels=256, out_channels=128, kernel_size=3, stride=1, padding=1),  # Bottleneck!
-		torch.nn.LeakyReLU(inplace=True),
-		torch.nn.AvgPool2d(3),
-		torch.nn.Flatten(),
-		torch.nn.Linear(in_features=10368, out_features=1024),
-		torch.nn.Linear(in_features=1024, out_features=1024),
-		torch.nn.Linear(in_features=1024, out_features=latent_space),
-		torch.nn.Tanh()
+		features,
+		poolfn,
+		torch.nn.Flatten(1,),
+		torch.nn.Linear(in_features=1280, out_features=latent_space),
+		torch.nn.Tanh(),
 	)
 	print("Built model:")
 	print(model)
@@ -161,8 +155,8 @@ def main():
 	latent_space = 8
 	model = build_model(latent_space)
 	config = Configuration(
-		ENCODER_INPUT_WIDTH=255,
-		ENCODER_INPUT_HEIGHT=255,
+		ENCODER_INPUT_WIDTH=224,
+		ENCODER_INPUT_HEIGHT=224,
 		LATENT_SPACE_SIZE=latent_space,
 		LEARNING_RATE=1e-6,
 		EPOCHS=10,
