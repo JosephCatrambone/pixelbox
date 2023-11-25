@@ -57,50 +57,14 @@ pub fn crawl_globs_async(globs:Vec<String>, parallel_file_loaders:usize) -> (Rec
 				// File path is any generic file, not necessarily an image file.
 				// We need to check if it's an image, a zip file, or something else.
 				if let Some(extension) = file_path.extension().and_then(OsStr::to_str) {
-					// Figure out the kind of file.
-					let is_zipfile = extension.eq_ignore_ascii_case("zip");
 					let mut is_image_file = false;
-
-					if !is_zipfile { // Save ourselves some compute by skipping the extension check for zipfiles.
-						for &ext in SUPPORTED_IMAGE_EXTENSIONS {
-							if extension.eq_ignore_ascii_case(ext) {
-								is_image_file = true;
-							}
+					for &ext in SUPPORTED_IMAGE_EXTENSIONS {
+						if extension.eq_ignore_ascii_case(ext) {
+							is_image_file = true;
 						}
 					}
 
-					// Send one or more images to the image_tx queue.
-					if is_zipfile {
-						// Iterate over the zip files by index.  Maybe we could do name, but that seems to require a seek.
-						if let Ok(fin) = File::open(&file_path) {
-							let mut bufreader = BufReader::new(fin);
-							if let Ok(mut zipfile) = zip::ZipArchive::new(bufreader) {
-								let filenames = zipfile.file_names().map(String::from).collect::<Vec<String>>();
-								for filename in &filenames {
-									// Try to pull and check the extension:
-									if let Ok(mut compressed_file) = zipfile.by_name(filename) {
-										if !compressed_file.is_file() { continue; }
-
-										let mut valid_image = false;
-										for &ext in SUPPORTED_IMAGE_EXTENSIONS {
-											if filename.ends_with(ext) {
-												valid_image = true;
-												break;
-											}
-										}
-										if !valid_image { continue; }
-
-										let mut data:Vec<u8> = vec![];
-										compressed_file.read(&mut data);
-
-										if let Ok(img) = IndexedImage::from_memory(&mut data, filename.to_string(), format!("{}/{}", &file_path.display(), filename)) {
-											tx.send(img);
-										}
-									}
-								}
-							}
-						}
-					} else if is_image_file {
+					if is_image_file {
 						match IndexedImage::from_file_path(&file_path.as_path()) {
 							Ok(img) => {
 								tx.send(img);

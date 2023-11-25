@@ -1,3 +1,4 @@
+mod blip;
 mod crawler;
 mod engine;
 mod image_hashes;
@@ -105,7 +106,6 @@ impl eframe::App for MainApp {
 fn main() {
 	let app = MainApp::default();
 	let options = eframe::NativeOptions {
-		drag_and_drop_support: true,
 		..Default::default()
 	};
 	// This is a bit hacky.  We could probably get away with just

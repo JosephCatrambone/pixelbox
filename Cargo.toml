@@ -7,27 +7,47 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "^1.0"  # For convenient Result types.  Can switch to Enums with inner-error captures later on.
-crossbeam = "0.8.1"
-eframe = "~0.23" # Gives us egui, epi and web+native backends
-egui_extras = "~0.23"
-glob = "0.3.0"
-image = "^0.24"
-kamadak-exif = "^0.5"
-lazy_static = "1.4.0"
-open = "2.0.2"
-parking_lot = "^0.12"
-qoi = "^0.4"
-rayon = "1.5.0"
-rfd = "^0.8"
-rusqlite = { version="^0.27", features=["bundled", "time", "functions", "serde_json"] } # bundled uses bundled version for Windows.  blob feature might be needed for io.
-serde = { version = "^1.0", features = ["derive"], optional = true }
-serde_json = "^1.0"
-zip = "^0.6"
+anyhow = "~1.0"  # For convenient Result types.  Can switch to Enums with inner-error captures later on.
+crossbeam = "~0.8"
+eframe = "~0.24" # Gives us egui, epi and web+native backends
+egui_extras = "~0.24"
+glob = "~0.3"
+image = "~0.24"
+kamadak-exif = "~0.5"
+lazy_static = "~1.4"
+open = "~5.0"
+parking_lot = "~0.12"
+qoi = "~0.4"
+rayon = "~1.8"
+rfd = "~0.12"
+rusqlite = { version="~0.29", features=["bundled", "time", "functions", "serde_json"] } # bundled uses bundled version for Windows.  blob feature might be needed for io.
+serde = { version = "~1.0", features = ["derive"], optional = true }
+serde_json = "~1.0"
+
+# ML components:
+accelerate-src = { version = "~0.3", optional = true }
+candle-core = { version = "~0.3", features = [] }
+candle-flash-attn = { version = "~0.3", optional = true }
+candle-nn = { version = "~0.3", features = [] }
+candle-transformers = { version = "~0.3", features = [] }
+intel-mkl-src = { version = "~0.8", optional = true }
+tokenizers = "~0.15"
+
 
 [dev-dependencies]
-criterion = "0.3"  # To run benchmarks.  When the nightly bits are merged, we can remove this.
+criterion = "~0.5"  # To run benchmarks.  When the nightly bits are merged, we can remove this.
+
+[features]
+default = []
+accelerate = ["dep:accelerate-src"]
+#cuda = ["candle/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
+#cudnn = ["candle/cudnn"]
+flash-attn = ["dep:candle-flash-attn"] #"cuda", "candle-transformers/flash-attn", ]
+mkl = ["dep:intel-mkl-src"] #, "candle/mkl", "candle-nn/mkl", "candle-transformers/mkl"]
 
 #[[bench]]
 #name = "image_hashes"
 #harness = false
+
+[profile.dev.package."*"]
+opt-level = 3  # Non-crate packages should be built with high optimization.
