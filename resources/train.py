@@ -12,6 +12,11 @@ from glob import glob
 from PIL import Image
 from tqdm import tqdm
 
+try:
+	import wandb
+except Exception:
+	wandb = None
+
 Configuration = namedtuple("Configuration", "ENCODER_INPUT_WIDTH ENCODER_INPUT_HEIGHT LATENT_SPACE_SIZE LEARNING_RATE EPOCHS BATCH_SIZE DATA_PATH ARCHITECTURE NOTES TRAINING_LOSSES")
 
 DEVICE = torch.device("cuda")
@@ -107,6 +112,13 @@ def train(model, config: Type[Configuration]):
 	dataset = PlainImageLoader(training_data_directory, corruptions)  # We will do the corruptions ourselves.
 	dataset_loader = torch.utils.data.DataLoader(dataset, batch_size=config.BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True)
 
+	# Report run start:
+	if wandb:
+		wandb.init(
+			project="pixelbox-embedding-mk1",
+			config=config.to_dict()
+		)
+
 	# Training loop:
 	epoch_losses = list()
 	for epoch_idx in range(config.EPOCHS):
@@ -132,6 +144,8 @@ def train(model, config: Type[Configuration]):
 
 			# Log status.
 			total_epoch_loss += loss.item()
+			if wandb:
+				wandb.log({"loss": loss.item()})
 
 		print(f"Epoch [{epoch_idx}/{config.EPOCHS}] loss: {total_epoch_loss}")
 		epoch_losses.append(total_epoch_loss)
