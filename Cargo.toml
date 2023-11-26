@@ -23,27 +23,15 @@ rfd = "~0.12"
 rusqlite = { version="~0.29", features=["bundled", "time", "functions", "serde_json"] } # bundled uses bundled version for Windows.  blob feature might be needed for io.
 serde = { version = "~1.0", features = ["derive"], optional = true }
 serde_json = "~1.0"
-
-# ML components:
-accelerate-src = { version = "~0.3", optional = true }
-candle-core = { version = "~0.3", features = [] }
-candle-flash-attn = { version = "~0.3", optional = true }
-candle-nn = { version = "~0.3", features = [] }
-candle-transformers = { version = "~0.3", features = [] }
-intel-mkl-src = { version = "~0.8", optional = true }
-tokenizers = "~0.15"
-
+tract-onnx = "~0.20"
 
 [dev-dependencies]
 criterion = "~0.5"  # To run benchmarks.  When the nightly bits are merged, we can remove this.
 
 [features]
 default = []
-accelerate = ["dep:accelerate-src"]
 #cuda = ["candle/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
 #cudnn = ["candle/cudnn"]
-flash-attn = ["dep:candle-flash-attn"] #"cuda", "candle-transformers/flash-attn", ]
-mkl = ["dep:intel-mkl-src"] #, "candle/mkl", "candle-nn/mkl", "candle-transformers/mkl"]
 
 #[[bench]]
 #name = "image_hashes"

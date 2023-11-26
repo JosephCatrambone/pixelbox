@@ -1,4 +1,3 @@
-mod blip;
 mod crawler;
 mod engine;
 mod image_hashes;
