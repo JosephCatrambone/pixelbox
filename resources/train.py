@@ -14,7 +14,10 @@ from tqdm import tqdm
 
 try:
 	import wandb
-except Exception:
+except Exception as e:
+	import time
+	print(f"Failed to load WANDB: {e}")
+	time.sleep(2)
 	wandb = None
 
 Configuration = namedtuple("Configuration", "ENCODER_INPUT_WIDTH ENCODER_INPUT_HEIGHT LATENT_SPACE_SIZE LEARNING_RATE EPOCHS BATCH_SIZE DATA_PATH ARCHITECTURE NOTES TRAINING_LOSSES")
@@ -116,7 +119,7 @@ def train(model, config: Type[Configuration]):
 	if wandb:
 		wandb.init(
 			project="pixelbox-embedding-mk1",
-			config=config.to_dict()
+			config=config._asdict()
 		)
 
 	# Training loop:
@@ -175,7 +178,7 @@ def main():
 		LEARNING_RATE=1e-6,
 		EPOCHS=10,
 		BATCH_SIZE=32,
-		DATA_PATH="/home/joseph/512/",
+		DATA_PATH="/home/joseph/MLData/train_512/",
 		ARCHITECTURE=str(model),
 		NOTES="""New dataset has made the model much more selective, but recall is a little lower.  Trying an extra dense layer.  Next, I think we should omit the tanh output to see if we get a distribution in an n-dimensional hyperspace instead of on the surface of a hypersphere.""",
 		TRAINING_LOSSES=[],
