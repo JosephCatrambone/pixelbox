@@ -38,3 +38,29 @@ pub fn mlhash(img:&DynamicImage) -> Vec<u8> {
 		.collect::<Vec<u8>>();
 	float_embed
 }
+
+#[cfg(test)]
+mod test {
+	use std::env;
+	use std::path::Path;
+	use crate::engine::hamming_distance;
+	use super::mlhash;
+
+	const SRC_FILE: &'static str = concat!(env!("CARGO_MANIFEST_DIR"), "/", file!());
+	const TEST_IMAGE_DIRECTORY: &'static str = concat!(env!("CARGO_MANIFEST_DIR"), "/", "test_resources");
+
+	#[test]
+	fn test_sanity() {
+		println!("CWD: {:?}", &env::current_dir().unwrap());
+		println!("Loading images from {:}", TEST_IMAGE_DIRECTORY);
+
+		let mut diff = 0f32;
+		let img = image::open(Path::new(TEST_IMAGE_DIRECTORY).join("phash_test_a.png")).unwrap();
+		let img_hash = mlhash(&img);
+
+		// Cases that should match:
+		diff = hamming_distance(&img_hash, &img_hash);
+		assert_eq!(diff, 0f32);
+		//assert!(hamming_distance(&flat_hash, &img_rot_hash) > 0.5);
+	}
+}
