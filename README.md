@@ -28,7 +28,6 @@ PixelBox is still pre-alpha.  Database schema and feature prioritization are sub
 * Start removing those unwraps
  
 ### TODOs for Roadmap
-* Index inside of zip files
 * Better similarity search
 * OCR for images (search on text in images)
 * Editable tags
@@ -36,6 +35,7 @@ PixelBox is still pre-alpha.  Database schema and feature prioritization are sub
 * Search on image contents in plaintext
 * Watched directories via notify crate
 * If a model is unavailable, don't perform image hash and just disable similarity search so people can use it for just tags
+* Index inside of zip files
 
 ### Project Structure
 
@@ -53,5 +53,5 @@ For example, if you represent your image as [-1.0, 1.0, 0.0, 0.1] then this will
 
 There are two ways to use your own image hash methods:
 
-1) Replace the encoder_cpu.onnx file with your own trained model.  The inputs should be channel-first 128x128 RGB images and the outputs should be a 1D vector of floats between -1 and 1.  See image_hashes/convnet.rs for constraints.
+1) Replace the image_similarity.onnx file with your own trained model.  The inputs should be channel-first 128x128 RGB images and the outputs should be a 1D vector of floats between -1 and 1.  See image_hashes/efficientnet.rs for constraints.
 2) Replace the 'hash' in the 'semantic_hash' table of your database.  This should be an array of u8s as described above.  You will not be able to drag-and-drop images for search if using this approach, but after finding a seed image you can right-click and do 'find similar'.

@@ -553,6 +553,9 @@ fn build_where_clause_from_parsed_query(tokens: &Vec<String>, mut cached_similar
 					eprintln!("Time to compute image hash: {:?}", debug_end_load_image - debug_start_load_image);
 					*cached_similar_image = indexed_image.ok();
 				}
+				
+				//and_where_clauses.push(format!("()"));
+				// TODO: Do we need to append this actually?
 			}
 
 			if magic_prefix.eq("exif") || magic_prefix.eq("tag") {

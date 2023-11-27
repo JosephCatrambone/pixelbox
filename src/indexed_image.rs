@@ -10,7 +10,6 @@ use image::{ImageError, GenericImageView, DynamicImage, ImageFormat};
 
 use crate::image_hashes::phash;
 use crate::image_hashes::mlhash;
-//use crate::image_hashes::efficientnet_hash;
 
 pub const THUMBNAIL_SIZE: (u32, u32) = (256, 256);
 
@@ -83,7 +82,7 @@ impl IndexedImage {
 
 				tags: tags,
 
-				phash: None, // Some(phash(&img)),  // Disable for a little while to check performance.
+				phash: Some(phash(&img)),  // Disable for a little while to check performance.
 				visual_hash: hash,
 
 				distance_from_query: None,
