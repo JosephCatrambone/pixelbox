@@ -8,6 +8,7 @@ import numpy
 import random
 import torch
 import torchvision
+import torchvision.transforms.v2
 from glob import glob
 from PIL import Image
 from tqdm import tqdm
@@ -102,9 +103,14 @@ def train(model, config: Type[Configuration]):
 		#torchvision.transforms.RandomHorizontalFlip(),
 		torchvision.transforms.RandomRotation(25),
 		torchvision.transforms.ColorJitter(),
-		torchvision.transforms.Resize(int(config.ENCODER_INPUT_WIDTH*1.2)),  # 44 pixels of play to reshuffle.
+		# This line, coupled with random resized crops, means we have more scale variations in our images.
+		torchvision.transforms.v2.RandomResize(int(config.ENCODER_INPUT_WIDTH*1.2), int(config.ENCODER_INPUT_WIDTH*1.4)),
+		#torchvision.transforms.Resize(int(config.ENCODER_INPUT_WIDTH*1.2)),  # 44 pixels of play to reshuffle.
 		#torchvision.transforms.CenterCrop
 		torchvision.transforms.RandomResizedCrop((config.ENCODER_INPUT_WIDTH, config.ENCODER_INPUT_HEIGHT)),  # This might be backwards.
+		torchvision.transforms.v2.RandomGrayscale(0.01),
+		torchvision.transforms.v2.RandomInvert(0.001),
+		torchvision.transforms.v2.GaussianBlur(5),
 		torchvision.transforms.ToTensor(),
 	])
 
@@ -163,9 +169,9 @@ def finalize(encoder, config):
 	device = torch.device("cpu")
 	encoder_cpu = encoder.to(device)
 	example = torch.rand(1, 3, config.ENCODER_INPUT_HEIGHT, config.ENCODER_INPUT_WIDTH).to(device)
-	torch.onnx.export(encoder_cpu, example, "encoder_cpu.onnx", example_outputs=encoder_cpu(example), opset_version=11)
+	torch.onnx.export(encoder_cpu, example, "image_similarity.onnx", opset_version=11, do_constant_folding=True, input_names=['input',], output_names=['output',], dynamic_axes={'input': {0: 'batch_size'}, 'output':{0: 'batch_size'}})
 	traced_script_module = torch.jit.trace(encoder_cpu, example)
-	traced_script_module.save("encoder_cpu.pt")
+	traced_script_module.save("image_similarity.pt")
 
 
 def main():
@@ -175,12 +181,12 @@ def main():
 		ENCODER_INPUT_WIDTH=224,
 		ENCODER_INPUT_HEIGHT=224,
 		LATENT_SPACE_SIZE=latent_space,
-		LEARNING_RATE=1e-6,
+		LEARNING_RATE=1e-4,
 		EPOCHS=10,
 		BATCH_SIZE=32,
 		DATA_PATH="/home/joseph/MLData/train_512/",
 		ARCHITECTURE=str(model),
-		NOTES="""New dataset has made the model much more selective, but recall is a little lower.  Trying an extra dense layer.  Next, I think we should omit the tanh output to see if we get a distribution in an n-dimensional hyperspace instead of on the surface of a hypersphere.""",
+		NOTES="""More image augmentations. Haven't done triplet comparison yet, so we're still in contrastive land.""",
 		TRAINING_LOSSES=[],
 	)
 	log_timestamp = datetime.strftime(datetime.now(), "%Y%m%d%H%M%S")
