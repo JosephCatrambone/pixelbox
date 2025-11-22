@@ -10,7 +10,6 @@ use engine::Engine;
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
-use egui_extras::RetainedImage;
 
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
@@ -111,7 +110,7 @@ fn main() {
 	//eframe::run_native("PixelBox", options, Box::new(app);
 	eframe::run_native("PixelBox", options, Box::new(|ctx| {
 		egui_extras::install_image_loaders(&ctx.egui_ctx);
-		Box::<MainApp>::new(app)
+		Ok(Box::<MainApp>::new(app))
 	}));
 }
 

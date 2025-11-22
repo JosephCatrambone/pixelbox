@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use eframe::egui;
 use eframe::egui::{ColorImage, TextureOptions};
 use eframe::egui::Ui;
-use egui_extras::RetainedImage;
 use image;
 
 use crate::indexed_image;
