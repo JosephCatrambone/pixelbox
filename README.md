@@ -43,8 +43,10 @@ PixelBox is still pre-alpha.  Database schema and feature prioritization are sub
 * models - The final ONNX files to be used by the application for visual similarity
 * resources - Non-shipped experiment logs and python training files
 * src - The main application code
-  * image_hashes - Wrappers for different image hashing methods
+  * image_hashes - Wrappers for different image hashing methods.
   * ui - Code for each of the major UI panels like search view, folder view, etc.
+  * engine.rs - Main database interface for search and store.
+  * crawler.rs - Folder indexing and background loading work.
 
 ### Using Your Own Image Hash (Advanced)
 

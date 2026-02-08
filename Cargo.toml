@@ -16,11 +16,10 @@ image = "0.25.9"
 kamadak-exif = "0.6.1"
 lazy_static = "1.5.0"
 open = "5.3.3"
-parking_lot = "0.12.5"
 qoi = "0.4.1"
 #rayon = "1.11.0"
 rfd = "0.15.4"
-rusqlite = { version="0.37.0", features=["bundled", "time", "functions", "serde_json"] } # bundled uses bundled version for Windows.  blob feature might be needed for io.
+rusqlite = { version="0.38.0", features=["bundled", "time", "functions", "serde_json"] } # bundled uses bundled version for Windows.  blob feature might be needed for io.
 serde = { version = "1.0.228", features = ["derive"], optional = true }
 serde_json = "1.0.145"
 tract-onnx = "0.22.0"

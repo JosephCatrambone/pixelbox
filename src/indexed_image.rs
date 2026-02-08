@@ -26,7 +26,7 @@ pub struct IndexedImage {
 	pub tags: HashMap<String, String>,
 
 	pub phash: Option<Vec<u8>>,
-	pub visual_hash: Option<Vec<u8>>, // For visual-similarity, like style and structure.  Not for content.
+	pub visual_hash: Option<Vec<u8>>, // An embedding of the image.
 	//pub content_hash: Option<Vec<u8>>, //
 
 	pub distance_from_query: Option<f64>,
@@ -51,7 +51,7 @@ impl IndexedImage {
 		//let mut img = image::open(path)?;
 		//let mut img:DynamicImage = image::load_from_memory(bytes)?;
 		//let mut img:DynamicImage = image::load_from_memory_with_format(bytes.as_slice(), ImageFormat::from_path(&path)?)?;
-		let mut img:DynamicImage = image::io::Reader::new(&mut cursor).with_guessed_format()?.decode()?;
+		let img:DynamicImage = image::ImageReader::new(&mut cursor).with_guessed_format()?.decode()?;
 		let thumb = img.thumbnail(THUMBNAIL_SIZE.0, THUMBNAIL_SIZE.1).to_rgb8();
 		let thumbnail_width = thumb.width();
 		let thumbnail_height = thumb.height();
@@ -67,8 +67,9 @@ impl IndexedImage {
 			}
 		}
 
-		// And generate a perceptual hash.
-		let hash = Some(mlhash(&img));
+		// Generate hashes
+		let phash = phash(&img);
+		let visual_hash = mlhash(&img);
 
 		Ok(
 			IndexedImage {
@@ -82,8 +83,8 @@ impl IndexedImage {
 
 				tags: tags,
 
-				phash: Some(phash(&img)),  // Disable for a little while to check performance.
-				visual_hash: hash,
+				phash: Some(phash),
+				visual_hash: Some(visual_hash),
 
 				distance_from_query: None,
 			}

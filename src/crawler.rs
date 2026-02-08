@@ -10,6 +10,29 @@ use crate::indexed_image::{IndexedImage, stringify_filepath};
 
 const SUPPORTED_IMAGE_EXTENSIONS: &'static [&str; 12] = &["png", "bmp", "jpg", "jpeg", "jfif", "gif", "tiff", "pnm", "webp", "ico", "tga", "exr"];
 
+
+#[derive(Default)]
+pub struct Crawler {
+	tracked_folders: Vec<String>,
+	on_filename_crawled: Vec<Box<dyn Fn(&String)>>,
+	on_image_processed: Vec<Box<dyn Fn(IndexedImage)>>,
+	on_image_processing_failure: Vec<Box<dyn Fn(&String, &String)>>,
+}
+
+impl Crawler {
+	pub fn new() -> Self {
+		Crawler::default()
+	}
+	
+	pub fn add_tracked_folder(&mut self, folder: String) {
+		
+	}
+	
+	pub fn rescan_index(&mut self, force: bool) {
+		
+	}
+}
+
 /// Given a vec of directory globs and a set of valid extensions,
 /// crawl the disk and index images.
 /// Returns a Channel with Images as they're created.

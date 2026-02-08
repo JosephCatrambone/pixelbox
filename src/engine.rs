@@ -6,23 +6,17 @@
 ///
 
 use anyhow::{anyhow, Result};
-use crossbeam::channel;
 //use rayon::prelude::*;
-use parking_lot::FairMutex;
 use rusqlite::{params, Connection, Error as SQLError, Result as SQLResult, Row, ToSql, OpenFlags};
 use rusqlite::functions::FunctionFlags;
-use serde_json::{Result as JSONResult, Value as JSONValue};
+use serde_json::{Value as JSONValue};
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::crawler;
 use crate::indexed_image::*;
-
-type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
-type JSONMap = HashMap<String, JSONValue>;
 
 const PARALLEL_FILE_PROCESSORS: usize = 8;
 const DEFAULT_MAX_QUERY_DISTANCE: f64 = 1e3; // f64 implements ToSql in SQLite. f32 doesn't.
@@ -81,14 +75,9 @@ fn indexed_image_from_row(row: &Row) -> SQLResult<IndexedImage> {
 }
 
 pub struct Engine {
-	connection: Arc<FairMutex<Connection>>,
+	connection: Arc<Mutex<Connection>>,
 
 	// Crawling and indexing:
-	files_crawled: Option<channel::Receiver<PathBuf>>,
-	files_processed: Option<channel::Receiver<IndexedImage>>, // What images have been loaded but are not stored.
-	files_completed: Option<channel::Receiver<String>>,
-	files_failed: Option<channel::Receiver<String>>,
-	last_indexed: Vec<String>, // A cache of the last n indexed items.
 	watched_directories_cache: Option<Vec<String>>, // Contains a list of the globs that we monitor.
 	cached_index_size: Option<usize>, // Number of indexed images.
 
@@ -127,36 +116,15 @@ impl Engine {
 		make_cosine_distance_db_function(&mut conn);
 
 		Engine {
-			connection: Arc::new(FairMutex::new(conn)),
-			files_crawled: None,
-			files_processed: None,
-			files_completed: None,
-			files_failed: None,
-			last_indexed: vec![],
+			connection: Arc::new(Mutex::new(conn)),
 			watched_directories_cache: None,
 			cached_index_size: None,
 
-			max_search_results: 100,
+			max_search_results: DEFAULT_MAX_SEARCH_RESULTS,
 			max_distance_from_query: DEFAULT_MAX_QUERY_DISTANCE,
 			cached_search_results: None,
 			cached_image_search: None,
 		}
-	}
-
-	pub fn is_indexing_active(&self) -> bool {
-		match (&self.files_crawled, &self.files_processed) {
-			(Some(f_rx), _) => f_rx.len() > 0,
-			(_, Some(img_rx)) => img_rx.len() > 0,
-			(None, None) => false
-		}
-	}
-
-	pub fn get_indexing_progress(&self) -> f32 {
-		let num_unread = if let Some(fname_rx) = &self.files_crawled { fname_rx.len() } else { 0 };
-		let num_unprocessed = if let Some(img_rx) = &self.files_processed { img_rx.len() } else { 0 };
-		let num_completed = if let Some(cmp) = &self.files_completed { cmp.len() } else { 0 };
-		let num_indexed = self.try_get_num_indexed_images().unwrap_or(0);
-		(num_indexed as f32) / 1.0f32.max((num_indexed + num_unread + num_unprocessed + num_completed) as f32)
 	}
 
 	pub fn try_get_num_indexed_images(&self) -> Option<usize> {
@@ -165,10 +133,10 @@ impl Engine {
 
 	/// Perform a count of the number of indexed images and cache the value.
 	pub fn get_num_indexed_images(&mut self) -> usize {
-		let conn = self.connection.lock();
+		let conn = self.connection.lock().expect("Failed to lock DB connection while getting index data.");
 		let mut stmt = conn.prepare("SELECT COUNT(*) FROM images").unwrap();
 		let num_rows_iter = stmt.query_map([], |row|{
-			Ok(row.get(0)?)
+			Ok(row.get::<_, i64>(0)? as usize)
 		}).expect("Unable to count rows in image database");
 		for nr in num_rows_iter {
 			self.cached_index_size = Some(nr.unwrap());
@@ -176,78 +144,16 @@ impl Engine {
 		self.cached_index_size.unwrap()
 	}
 
-	pub fn get_last_indexed(&mut self) -> &Vec<String> {
-		if let Some(rx) = &self.files_completed {
-			while let Ok(msg) = rx.recv_timeout(Duration::from_nanos(1)) {
-				self.last_indexed.push(msg);
-			}
-		}
-
-		// Cap last indexed to 10.
-		while self.last_indexed.len() > 10 {
-			self.last_indexed.remove(0);
-		}
-
-		&self.last_indexed
-	}
-
-	pub fn start_reindexing(&mut self) {
-		// How this works:
-		// We select all our tracked folders from the database, then open a multi-stage pipeline:
-		// The crawl_globs_async begins to parallel crawl the filenames.
-		// As filenames are read, they're sent to the files_pending_processing queue.
-		// As files are read and converted into images they're sent to the files_pending_storage queue.
-		// Another thread (here) checks if images are already in the database and, if not, inserts them.
-		// Successes/failures to insert are reported to failure_tx/success_tx.
-		
-		// Select all our monitored folders and, in parallel, dir walk them to grab new images.
-		let all_globs:Vec<String> = self.get_tracked_folders().clone();
-
-		let (success_tx, success_rx) = crossbeam::channel::unbounded();
-		self.files_completed = Some(success_rx);
-		let (failure_tx, failure_rx) = crossbeam::channel::unbounded();
-		self.files_failed = Some(failure_rx);
-
-		// Image Processing Thread.
-		// file_rx / files_pending_processing
-		// img_rx / files_pending_storage
-		let (file_rx, img_rx) = crawler::crawl_globs_async(all_globs, PARALLEL_FILE_PROCESSORS);
-		self.files_crawled = Some(file_rx.clone());
-		self.files_processed = Some(img_rx.clone());
-		let w_conn = self.connection.clone();
-		std::thread::spawn(move || {
-			// To hold the lock as briefly as possible, we grab reads and writes very briefly.
-			// There is some overhead associated with getting the writes, so we might have to invert this pattern later.
-			while let Ok(img) = img_rx.recv() {
-				// Hold a short read lock and check if the image is already in our index.
-				let exists = {
-					let conn = w_conn.lock();
-					let mut stmt = conn.prepare("SELECT 1 FROM images WHERE path = ?").unwrap();
-					stmt.exists(params![&img.path]).unwrap()
-				};
-				// Image is not in our index.  Add it!
-				if !exists {
-					let fname = img.filename.clone();
-					// Quickly lock and unlock.
-					let insert_result = {
-						let mut rw_conn = w_conn.lock();
-						Engine::insert_image(&mut rw_conn, img)
-					};
-					if let Err(e) = insert_result {
-						eprintln!("Failed to track image: {}", &e);
-						failure_tx.send(format!("{}: {}", fname, e));
-					} else {
-						success_tx.send(fname);
-					}
-				};
-			}
-			//conn.flush_prepared_statement_cache();
-		});
-	}
-
 	//fn get_reindexing_status(&self) -> bool {}
 
-	fn insert_image(conn: &mut Connection, mut img:IndexedImage) -> Result<()> {
+	pub fn insert_image_from_path(&mut self, path: &Path) -> Result<()> {
+		let img = IndexedImage::from_file_path(path)?;
+		self.insert_image(img)?;
+		Ok(())
+	}
+
+	pub fn insert_image(&mut self, mut img:IndexedImage) -> Result<()> {
+		let conn = self.connection.lock().expect("Failed to lock DB connection while getting index data.");
 		// Update the images table first...
 		conn.execute(
 			"INSERT INTO images (filename, path, image_width, image_height, thumbnail) VALUES (?, ?, ?, ?, ?)",
@@ -338,7 +244,7 @@ impl Engine {
 
 		// Grab a read lock.
 		self.cached_search_results = {
-			let conn = self.connection.lock();
+			let conn = self.connection.lock().expect("Failed to lock DB while querying.");
 
 			// Try and perform the user's query (or some version of our assembled query).
 			let mut prepared_statement = conn.prepare(&statement)?;
@@ -391,7 +297,7 @@ impl Engine {
 		self.cached_search_results = None;
 
 		let debug_start_db_query = Instant::now();
-		let conn = self.connection.lock();
+		let conn = self.connection.lock().expect("Failed to lock DB while querying.");
 		let mut stmt = conn.prepare(&format!(r#"
 			SELECT {}, semantic_hashes.hash, cosine_distance(?, semantic_hashes.hash) AS dist
 			FROM semantic_hashes
@@ -423,7 +329,7 @@ impl Engine {
 
 	pub fn add_tracked_folder(&mut self, folder_glob:String) {
 		{
-			self.connection.lock().execute("INSERT INTO watched_directories (glob) VALUES (?1)", params![folder_glob]).unwrap();
+			self.connection.lock().unwrap().execute("INSERT INTO watched_directories (glob) VALUES (?1)", params![folder_glob]).unwrap();
 		}
 		self.watched_directories_cache = None; // Invalidate cache.
 		self.get_tracked_folders();
@@ -431,7 +337,7 @@ impl Engine {
 
 	pub fn remove_tracked_folder(&mut self, folder_glob:String) {
 		{
-			self.connection.lock().execute("DELETE FROM watched_directories WHERE glob=?1", params![folder_glob]).unwrap();
+			self.connection.lock().unwrap().execute("DELETE FROM watched_directories WHERE glob=?1", params![folder_glob]).unwrap();
 		}
 		self.watched_directories_cache = None; // Invalidate cache.
 		self.get_tracked_folders();
@@ -439,7 +345,7 @@ impl Engine {
 
 	pub fn get_tracked_folders(&mut self) -> &Vec<String> {
 		if self.watched_directories_cache.is_none() {
-			let conn = self.connection.lock();
+			let conn = self.connection.lock().expect("Failed to lock DB while fetching tracked folders.");
 			let mut stmt = conn.prepare("SELECT glob FROM watched_directories").unwrap();
 			let glob_cursor = stmt.query_map([], |row|{
 				let dir:String = row.get(0)?;

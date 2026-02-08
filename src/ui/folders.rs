@@ -50,7 +50,7 @@ pub fn folder_panel(
 				engine.get_num_indexed_images();
 				ui.label(format!("Reindexing.  Progress: {}%", 100.0*engine.get_indexing_progress()));
 				//ui.vertical_centered(|ui| {});
-				for file in engine.get_last_indexed() {
+				for file in engine.get_last_added() {
 					ui.label(file);
 				}
 			} else {
