@@ -15,13 +15,15 @@ use std::convert::TryFrom;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-
+use crossbeam::channel::{Receiver, TryRecvError};
+use crate::crawler::Crawler;
 use crate::indexed_image::*;
 
 const PARALLEL_FILE_PROCESSORS: usize = 8;
 const DEFAULT_MAX_QUERY_DISTANCE: f64 = 1e3; // f64 implements ToSql in SQLite. f32 doesn't.
 const DEFAULT_MAX_SEARCH_RESULTS: u64 = 100;
 const MAX_PENDING_FILEPATHS: usize = 1000;
+const RECENT_IMAGES_TO_SHOW: usize = 10; // How many of the recently indexed images should we display?
 
 //
 // Schemas
@@ -35,7 +37,8 @@ const IMAGE_SCHEMA_V1: &'static str = "CREATE TABLE images (
 	image_height     INTEGER,
 	thumbnail        BLOB,
 	created          DATETIME,
-	indexed          DATETIME
+	indexed          DATETIME,
+	UNIQUE(path)
 )";
 const TAG_SCHEMA_V1: &'static str = "CREATE TABLE tags (
 	image_id		INTEGER,
@@ -76,10 +79,12 @@ fn indexed_image_from_row(row: &Row) -> SQLResult<IndexedImage> {
 
 pub struct Engine {
 	connection: Arc<Mutex<Connection>>,
+	crawler_channel: Option<Receiver<IndexedImage>>,
 
 	// Crawling and indexing:
 	watched_directories_cache: Option<Vec<String>>, // Contains a list of the globs that we monitor.
 	cached_index_size: Option<usize>, // Number of indexed images.
+	recently_indexed: Vec<String>,
 
 	// Searching and filtering.
 	pub max_search_results: u64,
@@ -117,8 +122,10 @@ impl Engine {
 
 		Engine {
 			connection: Arc::new(Mutex::new(conn)),
+			crawler_channel: None,
 			watched_directories_cache: None,
 			cached_index_size: None,
+			recently_indexed: vec![],
 
 			max_search_results: DEFAULT_MAX_SEARCH_RESULTS,
 			max_distance_from_query: DEFAULT_MAX_QUERY_DISTANCE,
@@ -144,19 +151,60 @@ impl Engine {
 		self.cached_index_size.unwrap()
 	}
 
-	//fn get_reindexing_status(&self) -> bool {}
+	pub fn is_indexing_active(&self) -> bool {
+		self.crawler_channel.is_some()
+	}
+
+	pub fn start_indexing(&mut self) {
+		let tracked_folders = self.get_tracked_folders().clone();
+		let mut crawler = Crawler::new();
+		let mut channel = crawler.start_indexing(tracked_folders);
+		self.crawler_channel = Some(channel.clone());
+
+		{
+			let db_ref = self.connection.clone();
+			let channel = channel.clone();
+			std::thread::spawn(move || {
+				loop {
+					match channel.try_recv() {
+						Ok(img) => {
+							let mut db = db_ref.lock().unwrap();
+							Engine::insert_image_from_connection(&mut db, img).expect("Failed to insert image.");
+						},
+						Err(TryRecvError::Empty) => {},
+						Err(TryRecvError::Disconnected) => { return; }
+					}
+				}
+			});
+		}
+	}
+
+	pub fn stop_indexing(&mut self) {
+		let c = self.crawler_channel.take();
+		if let Some(c) = c {
+			drop(c);
+		}
+	}
+
+	pub fn get_last_added(&self) -> &Vec<String> {
+		&self.recently_indexed
+	}
 
 	pub fn insert_image_from_path(&mut self, path: &Path) -> Result<()> {
 		let img = IndexedImage::from_file_path(path)?;
-		self.insert_image(img)?;
+		self.insert_image_from_memory(img)?;
 		Ok(())
 	}
 
-	pub fn insert_image(&mut self, mut img:IndexedImage) -> Result<()> {
-		let conn = self.connection.lock().expect("Failed to lock DB connection while getting index data.");
+	pub fn insert_image_from_memory(&mut self, img:IndexedImage) -> Result<()> {
+		let mut conn = self.connection.lock().expect("Failed to lock DB connection while getting index data.");
+		Engine::insert_image_from_connection(&mut conn, img)
+	}
+
+	fn insert_image_from_connection(conn: &mut Connection, mut img:IndexedImage) -> Result<()> {
 		// Update the images table first...
 		conn.execute(
-			"INSERT INTO images (filename, path, image_width, image_height, thumbnail) VALUES (?, ?, ?, ?, ?)",
+			"INSERT OR IGNORE INTO images (filename, path, image_width, image_height, thumbnail) VALUES (?, ?, ?, ?, ?)",
 			params![img.filename, img.path, img.resolution.0, img.resolution.1, img.thumbnail,]
 		)?;
 		img.id = conn.last_insert_rowid();
@@ -219,7 +267,7 @@ impl Engine {
 			None => "0.0"
 		};
 
-		let mut statement = format!("
+		let statement = format!("
 			WITH grouped_tags AS (
 				SELECT tags.image_id, JSON(JSON_GROUP_OBJECT(
 					tags.name, tags.value
@@ -341,6 +389,7 @@ impl Engine {
 		}
 		self.watched_directories_cache = None; // Invalidate cache.
 		self.get_tracked_folders();
+		// TODO: Remove images which exist inside the indexed folder.
 	}
 
 	pub fn get_tracked_folders(&mut self) -> &Vec<String> {

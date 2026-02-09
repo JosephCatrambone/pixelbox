@@ -2,7 +2,7 @@ use crate::{AppTab, MainApp};
 //use crate::engine::Engine;
 use crate::ui::{fetch_or_generate_thumbnail, paginate};
 use eframe::{egui, NativeOptions};
-use eframe::egui::{Context, DroppedFile, TextureHandle, Ui};
+use eframe::egui::{Context, DroppedFile, TextureHandle, Ui, UiKind};
 use rfd;
 use std::collections::HashMap;
 use std::path::Path;
@@ -66,17 +66,17 @@ pub fn search_panel(
 								if ui.button("Open").clicked() {
 									//let _ = std::process::Command::new("open").arg(&res.path).output();
 									open::that(&res.path);
-									ui.close_menu();
+									ui.close_kind(UiKind::Menu);
 								}
 								if ui.button("Open in View Tab").clicked() {
 									//let _ = std::process::Command::new("open").arg(&res.path).output();
 									app_state.selected_image = Some(res.clone());
 									app_state.active_tab = AppTab::View;
-									ui.close_menu();
+									ui.close_kind(UiKind::Menu);
 								}
 								if ui.button("Search for Similar").clicked() {
 									app_state.engine.as_mut().unwrap().query_by_image_hash_from_image(res);
-									ui.close_menu();
+									ui.close_kind(UiKind::Menu);
 								}
 							});
 
@@ -86,6 +86,17 @@ pub fn search_panel(
 								ui.label(format!("Similarity: {}", 1.0f64 / (1.0f64+res.distance_from_query.unwrap_or(1e10f64))));
 								ui.label(format!("Distance: {}", res.distance_from_query.unwrap_or(1e3f64)));
 								ui.label(format!("Size: {}x{}", res.resolution.0, res.resolution.1));
+
+								ui.horizontal(|ui|{
+									if ui.button("View").clicked() {
+										app_state.selected_image = Some(res.clone());
+										app_state.active_tab = AppTab::View;
+									}
+									if ui.button("Search for Similar").clicked() {
+										app_state.engine.as_mut().unwrap().query_by_image_hash_from_image(res);
+									}
+								});
+
 							});
 						});
 					});

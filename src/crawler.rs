@@ -13,94 +13,72 @@ const SUPPORTED_IMAGE_EXTENSIONS: &'static [&str; 12] = &["png", "bmp", "jpg", "
 
 #[derive(Default)]
 pub struct Crawler {
-	tracked_folders: Vec<String>,
-	on_filename_crawled: Vec<Box<dyn Fn(&String)>>,
-	on_image_processed: Vec<Box<dyn Fn(IndexedImage)>>,
-	on_image_processing_failure: Vec<Box<dyn Fn(&String, &String)>>,
+	crawled_images: Vec<IndexedImage>,
 }
 
 impl Crawler {
 	pub fn new() -> Self {
-		Crawler::default()
+		Crawler {
+			crawled_images: Vec::new(),
+		}
 	}
-	
-	pub fn add_tracked_folder(&mut self, folder: String) {
-		
-	}
-	
-	pub fn rescan_index(&mut self, force: bool) {
-		
-	}
-}
 
-/// Given a vec of directory globs and a set of valid extensions,
-/// crawl the disk and index images.
-/// Returns a Channel with Images as they're created.
-pub fn crawl_globs_async(globs:Vec<String>, parallel_file_loaders:usize) -> (Receiver<PathBuf>, Receiver<IndexedImage>) {
+	pub fn start_indexing(&mut self, folders: Vec<String>) -> Receiver<IndexedImage> {
+		let (image_tx, image_rx) = unbounded();
 
-	let (file_tx, file_rx) = unbounded();
-	let (image_tx, image_rx) = unbounded();
+		let res = image_rx;
 
-	// TODO: A bloom filter to make sure we don't reprocess any images we have already.
+		{
+			let globs = folders.clone();
+			let tx = image_tx.clone();
 
-	// Crawling Thread.
-	{
-		let tx = file_tx.clone();
-		std::thread::spawn(move || {
-			println!("Crawler reporting for duty.");
-			for mut g in globs {
-				g.push(std::path::MAIN_SEPARATOR);
-				g.push_str("**");
-				g.push(std::path::MAIN_SEPARATOR);
-				g.push_str("*.*");
-				for maybe_fname in glob(&g).expect("Failed to interpret glob pattern.") {
-					match maybe_fname {
-						Ok(path) => {
-							println!("Checking {}", stringify_filepath(&path));
-							if path.is_file() {
-								if let Err(e) = tx.send(path) {
-									eprintln!("Failed to submit image for processing: {}", e);
+			std::thread::spawn(move || {
+				'end: for mut g in globs {
+					g.push(std::path::MAIN_SEPARATOR);
+					g.push_str("**");
+					g.push(std::path::MAIN_SEPARATOR);
+					g.push_str("*.*");
+					for maybe_fname in glob(&g).expect("Failed to interpret glob pattern.") {
+						match maybe_fname {
+							Ok(path) => {
+								println!("Crawling {} ...", stringify_filepath(&path));
+								if path.is_file() {
+									if let Some(extension) = path.extension().and_then(OsStr::to_str) {
+										let mut is_image_file = false;
+										for &ext in SUPPORTED_IMAGE_EXTENSIONS {
+											if extension.eq_ignore_ascii_case(ext) {
+												is_image_file = true;
+											}
+										}
+
+										if is_image_file {
+											match IndexedImage::from_file_path(&path.as_path()) {
+												Ok(img) => {
+													let e = tx.send(img);
+													if e.is_err() {
+														// Close our connection.
+														break 'end;
+													}
+													println!("... processed!");
+												},
+												Err(e) => {
+													println!("Error processing {}: {}", path.display(), e);
+												}
+											}
+										} else {
+											println!("... skipped");
+										}
+									} // Else we have to skip it.  No extension.
 								}
-							}
-						},
-						Err(e) => eprintln!("Failed to match glob: {}", e)
+							},
+							Err(e) => eprintln!("Failed to match glob: {}", e)
+						}
 					}
 				}
-			}
-			drop(tx);
-		});
+				drop(tx);
+			});
+		}
+
+		res
 	}
-
-	// Image Processing Thread.
-	for _ in 0..parallel_file_loaders {
-		let rx = file_rx.clone();
-		let tx = image_tx.clone();
-		std::thread::spawn(move || {
-			while let Ok(file_path) = rx.recv() {
-				// File path is any generic file, not necessarily an image file.
-				// We need to check if it's an image, a zip file, or something else.
-				if let Some(extension) = file_path.extension().and_then(OsStr::to_str) {
-					let mut is_image_file = false;
-					for &ext in SUPPORTED_IMAGE_EXTENSIONS {
-						if extension.eq_ignore_ascii_case(ext) {
-							is_image_file = true;
-						}
-					}
-
-					if is_image_file {
-						match IndexedImage::from_file_path(&file_path.as_path()) {
-							Ok(img) => {
-								tx.send(img);
-							},
-							Err(e) => {
-								println!("Error processing {}: {}", file_path.display(), e);
-							}
-						}
-					}
-				} // Else we have to skip it.  No extension.
-			}
-		});
-	}
-
-	(file_rx, image_rx)
 }

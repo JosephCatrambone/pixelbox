@@ -4,9 +4,9 @@ mod image_hashes;
 mod indexed_image;
 mod ui;
 
+use crate::engine::Engine;
 use crate::indexed_image::{IndexedImage, THUMBNAIL_SIZE};
 use eframe::{egui, self, NativeOptions};
-use engine::Engine;
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
@@ -90,11 +90,11 @@ impl eframe::App for MainApp {
 				(None, _) => ui::start::start_panel(ui),
 				(_, AppTab::Start) => ui::start::start_panel(ui),
 				// If the engine is loaded...
-				(Some(_), AppTab::Search) => ui::search::search_panel(self, ui),
+				(Some(_engine), AppTab::Search) => ui::search::search_panel(self, ui),
 				(Some(engine), AppTab::Folders) => ui::folders::folder_panel(engine, ctx, ui),
-				(Some(_), AppTab::View) => ui::view::view_panel(self, ui),
-				(Some(_), AppTab::Settings) => ui::settings::settings_panel(self, ui),
-				(Some(_), _) => ()
+				(_, AppTab::View) => ui::view::view_panel(self, ui),
+				(_, AppTab::Settings) => ui::settings::settings_panel(self, ui),
+				// (_, _) => ()
 			}
 		});
 	}
