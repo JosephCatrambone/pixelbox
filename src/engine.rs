@@ -19,10 +19,9 @@ use crossbeam::channel::{Receiver, TryRecvError};
 use crate::crawler::Crawler;
 use crate::indexed_image::*;
 
-const PARALLEL_FILE_PROCESSORS: usize = 8;
+const PARALLEL_FILE_PROCESSORS: usize = 4;
 const DEFAULT_MAX_QUERY_DISTANCE: f64 = 1e3; // f64 implements ToSql in SQLite. f32 doesn't.
 const DEFAULT_MAX_SEARCH_RESULTS: u64 = 100;
-const MAX_PENDING_FILEPATHS: usize = 1000;
 const RECENT_IMAGES_TO_SHOW: usize = 10; // How many of the recently indexed images should we display?
 
 //
@@ -158,23 +157,30 @@ impl Engine {
 	pub fn start_indexing(&mut self) {
 		let tracked_folders = self.get_tracked_folders().clone();
 		let mut crawler = Crawler::new();
-		let mut channel = crawler.start_indexing(tracked_folders);
-		self.crawler_channel = Some(channel.clone());
+		let channel = crawler.start_indexing(tracked_folders, PARALLEL_FILE_PROCESSORS);
+		self.crawler_channel = Some(channel);
 
 		{
 			let db_ref = self.connection.clone();
-			let channel = channel.clone();
+			let channel = self.crawler_channel.as_ref().unwrap().clone();
 			std::thread::spawn(move || {
-				loop {
+				let indexing_start_time = Instant::now();
+				'end: loop {
 					match channel.try_recv() {
 						Ok(img) => {
 							let mut db = db_ref.lock().unwrap();
 							Engine::insert_image_from_connection(&mut db, img).expect("Failed to insert image.");
 						},
-						Err(TryRecvError::Empty) => {},
-						Err(TryRecvError::Disconnected) => { return; }
+						Err(TryRecvError::Empty) => {
+							std::thread::yield_now(); // Chill for a while.
+						},
+						Err(TryRecvError::Disconnected) => {
+							break 'end;
+						}
 					}
 				}
+				let indexing_completion_time = Instant::now();
+				println!("Indexing took {:?} seconds.", (indexing_completion_time-indexing_start_time).as_secs())
 			});
 		}
 	}
@@ -212,7 +218,7 @@ impl Engine {
 		// Insert the tags.
 		img.tags.iter().for_each(|(tag_name, tag_value)| {
 			conn.execute(
-				"INSERT INTO tags (image_id, name, value) VALUES (?, ?, ?)",
+				"INSERT OR IGNORE INTO tags (image_id, name, value) VALUES (?, ?, ?)",
 				params![&img.id, tag_name, tag_value]
 			).expect(&format!("Failed to insert tag into database for image ID {}", &img.id));
 		});
@@ -220,13 +226,13 @@ impl Engine {
 		// Add the hashes.
 		if let Some(hash) = img.phash {
 			conn.execute(
-				"INSERT INTO phashes (image_id, hash) VALUES (?, ?)",
+				"INSERT OR IGNORE INTO phashes (image_id, hash) VALUES (?, ?)",
 				params![img.id, hash]
 			)?;
 		}
 		if let Some(hash) = img.visual_hash {
 			conn.execute(
-				"INSERT INTO semantic_hashes (image_id, hash) VALUES (?, ?)",
+				"INSERT OR IGNORE INTO semantic_hashes (image_id, hash) VALUES (?, ?)",
 				params![img.id, hash]
 			)?;
 		}

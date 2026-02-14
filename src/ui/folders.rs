@@ -49,6 +49,9 @@ pub fn folder_panel(
 			// Show Reindexing Button
 			if engine.is_indexing_active() {
 				ui.label(format!("Reindexing.  {} images indexed", engine.get_num_indexed_images()));
+				if ui.button("Stop Indexing").clicked() {
+					engine.stop_indexing();
+				}
 				//ui.vertical_centered(|ui| {});
 				for file in engine.get_last_added() {
 					ui.label(file);
