@@ -115,9 +115,11 @@ impl Engine {
 	pub fn open(filename:&Path) -> Self {
 		let mut conn = Connection::open(filename).expect("Unable to open filename.");
 
-		make_hamming_distance_db_function(&mut conn);
-		make_byte_distance_db_function(&mut conn);
-		make_cosine_distance_db_function(&mut conn);
+		conn.pragma_update(None, "journal_mode", "WAL").expect("Unable to set write-ahead logging.");
+
+		make_hamming_distance_db_function(&mut conn).expect("Could not initialize hamming distance function in DB.");
+		make_byte_distance_db_function(&mut conn).expect("Could not initialize byte distance function in DB.");
+		make_cosine_distance_db_function(&mut conn).expect("Could not initialize cosine distance function in DB.");
 
 		Engine {
 			connection: Arc::new(Mutex::new(conn)),
@@ -479,7 +481,7 @@ fn tokenize_query(query: &String) -> Result<Vec<String>> {
 	Ok(spans)
 }
 
-fn build_where_clause_from_parsed_query(tokens: &Vec<String>, mut cached_similar_image: &mut Option<IndexedImage>) -> String {
+fn build_where_clause_from_parsed_query(tokens: &Vec<String>, cached_similar_image: &mut Option<IndexedImage>) -> String {
 	// If there's a magic prefix like "similar", "filename", or a tag, add that to a 'where'.
 	// Otherwise, search all of the tags and exif data.
 

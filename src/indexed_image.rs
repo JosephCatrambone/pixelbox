@@ -1,24 +1,16 @@
 use anyhow::Result;
 use std::collections::HashMap;
-use std::error::Error;
 use std::fs::File;
-use std::io::{BufReader, Cursor, Read, BufRead, Seek};
+use std::io::{Cursor, Read, BufRead, Seek};
 use std::time::Instant;
 use std::path::Path;
 //use exif::{Field, Exif, };
-use image::{ImageError, GenericImageView, DynamicImage, ImageFormat};
+use image::{GenericImageView, DynamicImage};
 
 use crate::image_hashes::phash;
 use crate::image_hashes::mlhash;
 
 pub const THUMBNAIL_SIZE: (u32, u32) = (256, 256);
-
-#[derive(Clone, Debug)]
-pub struct UnindexedImage {
-	pub filename: String,
-	pub path: String,
-	pub resolution: (u32, u32),
-}
 
 #[derive(Clone, Debug)]
 pub struct IndexedImage {
@@ -65,9 +57,9 @@ impl IndexedImage {
 		let qoi_thumb = qoi::encode_to_vec(&thumb.into_raw(), thumbnail_width, thumbnail_height).expect("Unable to generate compressed thumbnail.");
 
 		// Also parse the EXIF data.
-		cursor.seek(std::io::SeekFrom::Start(0));
+		cursor.seek(std::io::SeekFrom::Start(0)).expect("Unable to seek to file start to read EXIF.");
 		let mut tags = HashMap::<String, String>::new();
-		let mut exifreader = exif::Reader::new();
+		let exifreader = exif::Reader::new();
 		if let Ok(exif) = exifreader.read_from_container(&mut cursor) {
 			for field in exif.fields() {
 				tags.insert(field.tag.to_string(), field.display_value().to_string());
@@ -81,14 +73,14 @@ impl IndexedImage {
 		Ok(
 			IndexedImage {
 				id: 0,
-				filename: filename,
-				path: path,
+				filename,
+				path,
 				resolution: (img.width(), img.height()),
 				thumbnail: qoi_thumb,
 				created: Instant::now(),
 				indexed: Instant::now(),
 
-				tags: tags,
+				tags,
 
 				phash: Some(phash),
 				visual_hash: Some(visual_hash),

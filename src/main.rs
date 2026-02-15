@@ -58,7 +58,7 @@ impl Default for MainApp {
 			image_id_to_texture_handle: HashMap::new(),
 
 			thumbnail_size: 128,
-			search_text_min_length: 2,
+			search_text_min_length: 0,
 			search_text: "".to_string(),
 			query_error: "".to_string(),
 			some_value: 1.0f32,
@@ -101,7 +101,7 @@ impl eframe::App for MainApp {
 }
 
 
-fn main() {
+fn main() -> Result<(), eframe::Error> {
 	let app = MainApp::default();
 	let options = eframe::NativeOptions {
 		..Default::default()
@@ -111,6 +111,6 @@ fn main() {
 	eframe::run_native("PixelBox", options, Box::new(|ctx| {
 		egui_extras::install_image_loaders(&ctx.egui_ctx);
 		Ok(Box::<MainApp>::new(app))
-	}));
+	}))
 }
 
