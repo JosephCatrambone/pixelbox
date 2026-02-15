@@ -5,6 +5,7 @@ use rfd;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use crate::crawler::Crawler;
 
 pub fn folder_panel(
 		engine: &mut Engine,
@@ -47,15 +48,17 @@ pub fn folder_panel(
 		.show(ctx, |ui| {
 			// Show Reindexing Button
 			if engine.is_indexing_active() {
-				engine.get_num_indexed_images();
-				ui.label(format!("Reindexing.  Progress: {}%", 100.0*engine.get_indexing_progress()));
+				ui.label(format!("Reindexing.  {} images indexed", engine.get_num_indexed_images()));
+				if ui.button("Stop Indexing").clicked() {
+					engine.stop_indexing();
+				}
 				//ui.vertical_centered(|ui| {});
-				for file in engine.get_last_indexed() {
+				for file in engine.get_last_added() {
 					ui.label(file);
 				}
 			} else {
 				if ui.button("Reindex").clicked() {
-					engine.start_reindexing();
+					engine.start_indexing();
 				}
 			}
 		});

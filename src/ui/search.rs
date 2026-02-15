@@ -1,12 +1,10 @@
 use crate::{AppTab, MainApp};
-//use crate::engine::Engine;
 use crate::ui::{fetch_or_generate_thumbnail, paginate};
 use eframe::{egui, NativeOptions};
-use eframe::egui::{Context, DroppedFile, TextureHandle, Ui};
+use eframe::egui::{Context, DroppedFile, TextureHandle, UiKind};
 use rfd;
 use std::collections::HashMap;
 use std::path::Path;
-use std::time::Duration;
 
 pub fn search_panel(
 	app_state: &mut MainApp,
@@ -33,7 +31,14 @@ pub fn search_panel(
 		}
 		
 		// Universal Search
-		if ui.text_edit_singleline(&mut app_state.search_text).changed() && app_state.search_text.len() > app_state.search_text_min_length as usize {
+		let searchbar = ui.text_edit_singleline(&mut app_state.search_text);
+		// If F1 is pressed, focus the search bar.
+		if ui.input(|i| i.key_pressed(egui::Key::F1)) && !searchbar.has_focus() {
+			searchbar.request_focus();
+		}
+		// If EITHER the search bar has more than the min character OR we pressed enter...
+		if (app_state.search_text_min_length != 0 && searchbar.changed() && app_state.search_text.len() > app_state.search_text_min_length as usize) ||
+				(searchbar.lost_focus() && ui.input(|i| { i.key_pressed(egui::Key::Enter) })) {
 			let query_success = app_state.engine.as_mut().unwrap().query(&app_state.search_text.clone());
 			if let Err(q) = query_success {
 				app_state.query_error = q.to_string();
@@ -60,23 +65,23 @@ pub fn search_panel(
 					results.iter().for_each(|res|{
 						ui.horizontal(|ui|{
 							let tex_id = fetch_or_generate_thumbnail(res, &mut app_state.image_id_to_texture_handle, ui.ctx());
-							
+
 							// Note: thumbnail size != image size.  We might want to show them off as larger or smaller.
 							ui.image(&tex_id).context_menu(|ui|{
 								if ui.button("Open").clicked() {
 									//let _ = std::process::Command::new("open").arg(&res.path).output();
 									open::that(&res.path);
-									ui.close_menu();
+									ui.close_kind(UiKind::Menu);
 								}
 								if ui.button("Open in View Tab").clicked() {
 									//let _ = std::process::Command::new("open").arg(&res.path).output();
 									app_state.selected_image = Some(res.clone());
 									app_state.active_tab = AppTab::View;
-									ui.close_menu();
+									ui.close_kind(UiKind::Menu);
 								}
 								if ui.button("Search for Similar").clicked() {
 									app_state.engine.as_mut().unwrap().query_by_image_hash_from_image(res);
-									ui.close_menu();
+									ui.close_kind(UiKind::Menu);
 								}
 							});
 
@@ -86,6 +91,22 @@ pub fn search_panel(
 								ui.label(format!("Similarity: {}", 1.0f64 / (1.0f64+res.distance_from_query.unwrap_or(1e10f64))));
 								ui.label(format!("Distance: {}", res.distance_from_query.unwrap_or(1e3f64)));
 								ui.label(format!("Size: {}x{}", res.resolution.0, res.resolution.1));
+
+								ui.horizontal(|ui|{
+									if ui.button("Open").clicked() {
+										//let _ = std::process::Command::new("open").arg(&res.path).output();
+										let _ = open::that(&res.path);
+										ui.close_kind(UiKind::Menu);
+									}
+									if ui.button("Open in View Tab").clicked() {
+										app_state.selected_image = Some(res.clone());
+										app_state.active_tab = AppTab::View;
+									}
+									if ui.button("Search for Similar").clicked() {
+										app_state.engine.as_mut().unwrap().query_by_image_hash_from_image(res);
+									}
+								});
+
 							});
 						});
 					});

@@ -4,9 +4,9 @@ mod image_hashes;
 mod indexed_image;
 mod ui;
 
+use crate::engine::Engine;
 use crate::indexed_image::{IndexedImage, THUMBNAIL_SIZE};
 use eframe::{egui, self, NativeOptions};
-use engine::Engine;
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
@@ -58,7 +58,7 @@ impl Default for MainApp {
 			image_id_to_texture_handle: HashMap::new(),
 
 			thumbnail_size: 128,
-			search_text_min_length: 2,
+			search_text_min_length: 0,
 			search_text: "".to_string(),
 			query_error: "".to_string(),
 			some_value: 1.0f32,
@@ -90,18 +90,18 @@ impl eframe::App for MainApp {
 				(None, _) => ui::start::start_panel(ui),
 				(_, AppTab::Start) => ui::start::start_panel(ui),
 				// If the engine is loaded...
-				(Some(_), AppTab::Search) => ui::search::search_panel(self, ui),
+				(Some(_engine), AppTab::Search) => ui::search::search_panel(self, ui),
 				(Some(engine), AppTab::Folders) => ui::folders::folder_panel(engine, ctx, ui),
-				(Some(_), AppTab::View) => ui::view::view_panel(self, ui),
-				(Some(_), AppTab::Settings) => ui::settings::settings_panel(self, ui),
-				(Some(_), _) => ()
+				(_, AppTab::View) => ui::view::view_panel(self, ui),
+				(_, AppTab::Settings) => ui::settings::settings_panel(self, ui),
+				// (_, _) => ()
 			}
 		});
 	}
 }
 
 
-fn main() {
+fn main() -> Result<(), eframe::Error> {
 	let app = MainApp::default();
 	let options = eframe::NativeOptions {
 		..Default::default()
@@ -111,6 +111,6 @@ fn main() {
 	eframe::run_native("PixelBox", options, Box::new(|ctx| {
 		egui_extras::install_image_loaders(&ctx.egui_ctx);
 		Ok(Box::<MainApp>::new(app))
-	}));
+	}))
 }
 
