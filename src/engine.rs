@@ -12,7 +12,7 @@ use rusqlite::functions::FunctionFlags;
 use serde_json::{Value as JSONValue};
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use crossbeam::channel::{Receiver, TryRecvError};
@@ -77,7 +77,9 @@ fn indexed_image_from_row(row: &Row) -> SQLResult<IndexedImage> {
 }
 
 pub struct Engine {
-	connection: Arc<Mutex<Connection>>,
+	db_path: PathBuf,
+	read_connection: Connection,
+	write_connection: Connection,
 	crawler_channel: Option<Receiver<IndexedImage>>,
 
 	// Crawling and indexing:
@@ -113,16 +115,23 @@ impl Engine {
 	}
 
 	pub fn open(filename:&Path) -> Self {
-		let mut conn = Connection::open(filename).expect("Unable to open filename.");
+		let path = PathBuf::from(filename);
+		let mut write_connection = Connection::open(filename).expect("Unable to open filename for writing.");
+		let mut read_connection = Connection::open_with_flags(filename, OpenFlags::SQLITE_OPEN_READ_ONLY).expect("Unable to open DB file read only.");
 
-		conn.pragma_update(None, "journal_mode", "WAL").expect("Unable to set write-ahead logging.");
+		write_connection.pragma_update(None, "journal_mode", "WAL").expect("Unable to set write-ahead logging.");
 
-		make_hamming_distance_db_function(&mut conn).expect("Could not initialize hamming distance function in DB.");
-		make_byte_distance_db_function(&mut conn).expect("Could not initialize byte distance function in DB.");
-		make_cosine_distance_db_function(&mut conn).expect("Could not initialize cosine distance function in DB.");
+		make_hamming_distance_db_function(&mut write_connection).expect("Could not initialize hamming distance function in DB.");
+		make_byte_distance_db_function(&mut write_connection).expect("Could not initialize byte distance function in DB.");
+		make_cosine_distance_db_function(&mut write_connection).expect("Could not initialize cosine distance function in DB.");
+		make_hamming_distance_db_function(&mut read_connection).expect("Could not initialize hamming distance function in DB.");
+		make_byte_distance_db_function(&mut read_connection).expect("Could not initialize byte distance function in DB.");
+		make_cosine_distance_db_function(&mut read_connection).expect("Could not initialize cosine distance function in DB.");
 
 		Engine {
-			connection: Arc::new(Mutex::new(conn)),
+			db_path: path,
+			read_connection,
+			write_connection,
 			crawler_channel: None,
 			watched_directories_cache: None,
 			cached_index_size: None,
@@ -135,14 +144,23 @@ impl Engine {
 		}
 	}
 
+	fn clone_connection(&self, flags: Option<OpenFlags>) -> Connection {
+		let connection = if let Some(flags) = flags {
+			Connection::open_with_flags(self.db_path.clone(), flags)
+		} else {
+			Connection::open(self.db_path.clone())
+		}.expect("Failed to clone DB connection.");
+
+		connection
+	}
+
 	pub fn try_get_num_indexed_images(&self) -> Option<usize> {
 		self.cached_index_size
 	}
 
 	/// Perform a count of the number of indexed images and cache the value.
 	pub fn get_num_indexed_images(&mut self) -> usize {
-		let conn = self.connection.lock().expect("Failed to lock DB connection while getting index data.");
-		let mut stmt = conn.prepare("SELECT COUNT(*) FROM images").unwrap();
+		let mut stmt = self.read_connection.prepare("SELECT COUNT(*) FROM images").unwrap();
 		let num_rows_iter = stmt.query_map([], |row|{
 			Ok(row.get::<_, i64>(0)? as usize)
 		}).expect("Unable to count rows in image database");
@@ -163,14 +181,13 @@ impl Engine {
 		self.crawler_channel = Some(channel);
 
 		{
-			let db_ref = self.connection.clone();
+			let mut db = self.clone_connection(None);
 			let channel = self.crawler_channel.as_ref().unwrap().clone();
 			std::thread::spawn(move || {
 				let indexing_start_time = Instant::now();
 				'end: loop {
 					match channel.try_recv() {
 						Ok(img) => {
-							let mut db = db_ref.lock().unwrap();
 							Engine::insert_image_from_connection(&mut db, img).expect("Failed to insert image.");
 						},
 						Err(TryRecvError::Empty) => {
@@ -205,8 +222,7 @@ impl Engine {
 	}
 
 	pub fn insert_image_from_memory(&mut self, img:IndexedImage) -> Result<()> {
-		let mut conn = self.connection.lock().expect("Failed to lock DB connection while getting index data.");
-		Engine::insert_image_from_connection(&mut conn, img)
+		Engine::insert_image_from_connection(&mut self.write_connection, img)
 	}
 
 	fn insert_image_from_connection(conn: &mut Connection, mut img:IndexedImage) -> Result<()> {
@@ -300,7 +316,8 @@ impl Engine {
 
 		// Grab a read lock.
 		self.cached_search_results = {
-			let conn = self.connection.lock().expect("Failed to lock DB while querying.");
+			//let conn = self.connection.lock().expect("Failed to lock DB while querying.");
+			let conn = &self.read_connection;
 
 			// Try and perform the user's query (or some version of our assembled query).
 			let mut prepared_statement = conn.prepare(&statement)?;
@@ -353,7 +370,8 @@ impl Engine {
 		self.cached_search_results = None;
 
 		let debug_start_db_query = Instant::now();
-		let conn = self.connection.lock().expect("Failed to lock DB while querying.");
+		//let conn = self.connection.lock().expect("Failed to lock DB while querying.");
+		let conn = &self.read_connection;
 		let mut stmt = conn.prepare(&format!(r#"
 			SELECT {}, semantic_hashes.hash, cosine_distance(?, semantic_hashes.hash) AS dist
 			FROM semantic_hashes
@@ -384,17 +402,13 @@ impl Engine {
 	pub fn clear_query_results(&mut self) { self.cached_search_results = None; }
 
 	pub fn add_tracked_folder(&mut self, folder_glob:String) {
-		{
-			self.connection.lock().unwrap().execute("INSERT INTO watched_directories (glob) VALUES (?1)", params![folder_glob]).unwrap();
-		}
+		self.write_connection.execute("INSERT INTO watched_directories (glob) VALUES (?1)", params![folder_glob]).unwrap();
 		self.watched_directories_cache = None; // Invalidate cache.
 		self.get_tracked_folders();
 	}
 
 	pub fn remove_tracked_folder(&mut self, folder_glob:String) {
-		{
-			self.connection.lock().unwrap().execute("DELETE FROM watched_directories WHERE glob=?1", params![folder_glob]).unwrap();
-		}
+		self.write_connection.execute("DELETE FROM watched_directories WHERE glob=?1", params![folder_glob]).unwrap();
 		self.watched_directories_cache = None; // Invalidate cache.
 		self.get_tracked_folders();
 		// TODO: Remove images which exist inside the indexed folder.
@@ -402,7 +416,8 @@ impl Engine {
 
 	pub fn get_tracked_folders(&mut self) -> &Vec<String> {
 		if self.watched_directories_cache.is_none() {
-			let conn = self.connection.lock().expect("Failed to lock DB while fetching tracked folders.");
+			//let conn = self.connection.lock().expect("Failed to lock DB while fetching tracked folders.");
+			let conn = &self.read_connection;
 			let mut stmt = conn.prepare("SELECT glob FROM watched_directories").unwrap();
 			let glob_cursor = stmt.query_map([], |row|{
 				let dir:String = row.get(0)?;
